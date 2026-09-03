@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video boost</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2f3d;
+      --text: #e8eaef;
+      --muted: #8b93a7;
+      --accent: #6c8cff;
+      --accent-hover: #8aa3ff;
+      --ok: #3dd68c;
+      --err: #f07178;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "SF Pro Text", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(ellipse at top, #1a2240 0%, var(--bg) 55%);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 760px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+    }
+    h1 {
+      margin: 0 0 6px;
+      font-size: 1.5rem;
+      font-weight: 600;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+    }
+    .balance {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+    .balance strong { color: var(--text); }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+    }
+    input[type="text"]:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.2);
+    }
+    input[type="text"]:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .pack {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 16px 0 20px;
+    }
+    .pack-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 0.9rem;
+    }
+    .pack-item span { color: var(--muted); display: block; font-size: 0.75rem; }
+    button {
+      width: 100%;
+      padding: 13px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button.secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      margin-top: 10px;
+    }
+    button.secondary:hover:not(:disabled) {
+      background: var(--bg);
+      border-color: var(--accent);
+    }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.primary-busy:disabled { opacity: 0.6; cursor: wait; }
+    #result {
+      margin-top: 20px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .result-block {
+      padding: 12px 14px;
+      border-radius: 10px;
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .result-block.ok { border-color: rgba(61, 214, 140, 0.4); }
+    .result-block.fail { border-color: rgba(240, 113, 120, 0.4); }
+    .tag { font-weight: 600; }
+    .tag.ok { color: var(--ok); }
+    .tag.fail { color: var(--err); }
+    .hidden { display: none; }
+    #videoStats {
+      margin: 14px 0 4px;
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      font-size: 0.9rem;
+    }
+    #videoStats.loading { color: var(--muted); }
+    #videoStats.error { border-color: rgba(240, 113, 120, 0.4); color: var(--err); }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .stat-value {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+    .stat-label { color: var(--muted); font-size: 0.75rem; }
+    .video-meta {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+    .video-meta strong { color: var(--text); font-weight: 500; }
+    .after-boost {
+      margin-top: 10px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .after-boost span { color: var(--ok); }
+    .already-boosted-banner {
+      margin-bottom: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: rgba(240, 113, 120, 0.12);
+      border: 1px solid rgba(240, 113, 120, 0.35);
+      color: var(--err);
+      font-size: 0.85rem;
+    }
+    .done-panel {
+      margin-top: 4px;
+      padding: 20px;
+      border-radius: 12px;
+      text-align: center;
+    }
+    .done-panel.success {
+      background: rgba(61, 214, 140, 0.1);
+      border: 1px solid rgba(61, 214, 140, 0.45);
+    }
+    .done-panel.warning {
+      background: rgba(240, 180, 80, 0.1);
+      border: 1px solid rgba(240, 180, 80, 0.4);
+    }
+    .done-icon {
+      font-size: 2.5rem;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+    .done-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0 0 6px;
+    }
+    .done-panel.success .done-title { color: var(--ok); }
+    .done-panel.warning .done-title { color: #e8b84a; }
+    .done-sub {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin: 0 0 14px;
+      line-height: 1.45;
+    }
+    .done-video {
+      font-size: 0.8rem;
+      color: var(--muted);
+      word-break: break-all;
+      margin-bottom: 14px;
+      padding: 8px 10px;
+      background: var(--bg);
+      border-radius: 8px;
+      text-align: left;
+    }
+    .card.mode-done #inputSection { display: none; }
+    .card.mode-done #submitBtn { display: none; }
+    #nextVideoBtn { display: none; }
+    .card.mode-done #nextVideoBtn {
+      display: block;
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      margin-top: 16px;
+    }
+    .card.mode-done #nextVideoBtn:hover {
+      background: var(--accent-hover);
+    }
+    .card.mode-done #donePanel { display: block; }
+    #donePanel { display: none; }
+    .mode-picker {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin: 14px 0 16px;
+    }
+    .mode-option {
+      display: block;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .mode-option:has(input:checked) {
+      border-color: var(--accent);
+      background: rgba(108, 140, 255, 0.1);
+    }
+    .mode-option input { display: none; }
+    .mode-name {
+      display: block;
+      font-weight: 600;
+      font-size: 0.95rem;
+      margin-bottom: 4px;
+    }
+    .mode-desc {
+      display: block;
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+    @media (max-width: 480px) {
+      .mode-picker { grid-template-columns: 1fr; }
+    }
+    .qty-row {
+      margin: 0 0 16px;
+    }
+    .qty-row.hidden { display: none; }
+    .qty-hint {
+      margin-top: 6px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .queue-section {
+      margin-bottom: 28px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .queue-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .queue-header h2 {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+    }
+    .queue-meta {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-bottom: 14px;
+      line-height: 1.45;
+    }
+    .queue-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .queue-actions button {
+      width: auto;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+    }
+    .queue-group-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin: 16px 0 8px;
+    }
+    .queue-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .queue-item {
+      display: grid;
+      grid-template-columns: 72px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--bg);
+    }
+    .queue-item img {
+      width: 72px;
+      height: 96px;
+      object-fit: cover;
+      border-radius: 8px;
+      background: #111;
+    }
+    .queue-thumb {
+      width: 72px;
+      height: 96px;
+      border-radius: 8px;
+      background: #111;
+    }
+    .queue-title {
+      font-size: 0.88rem;
+      font-weight: 500;
+      margin-bottom: 6px;
+      line-height: 1.35;
+    }
+    .queue-stats {
+      color: var(--muted);
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .queue-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    .queue-badge.ready {
+      color: var(--ok);
+      background: rgba(61, 214, 140, 0.12);
+    }
+    .queue-badge.waiting {
+      color: #e8b84a;
+      background: rgba(232, 184, 74, 0.12);
+    }
+    .queue-approve {
+      width: auto;
+      min-width: 118px;
+      padding: 10px 12px;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
+    .queue-empty {
+      color: var(--muted);
+      font-size: 0.88rem;
+      padding: 12px 0;
+    }
+    .queue-error {
+      color: var(--err);
+      font-size: 0.88rem;
+      padding: 8px 0;
+    }
+    .manual-section-title {
+      margin: 0 0 6px;
+      font-size: 1.05rem;
+      font-weight: 600;
+    }
+    @media (max-width: 640px) {
+      .queue-item {
+        grid-template-columns: 56px 1fr;
+      }
+      .queue-item img,
+      .queue-thumb {
+        width: 56px;
+        height: 74px;
+      }
+      .queue-approve {
+        grid-column: 1 / -1;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="card mode-input" id="appCard">
+    <h1>Video boost</h1>
+    <p class="sub" id="pageSub">Approve boosts from your profile queue, or paste a URL manually.</p>
+
+    {% if balance %}
+    <p class="balance" id="balanceLine">
+      Balance: <strong>{{ balance.balance }} {{ balance.currency }}</strong>
+    </p>
+    {% endif %}
+
+    <section class="queue-section" id="queueSection">
+      <div class="queue-header">
+        <h2>Approval queue</h2>
+        <div class="queue-actions">
+          <button type="button" class="secondary" id="refreshQueueBtn">Refresh</button>
+        </div>
+      </div>
+      <p class="queue-meta">
+        @{{ queue_profile }} · last {{ queue_lookback_hours }}h ·
+        waits {{ queue_min_age_hours }}h after post · full pack only
+      </p>
+      <div id="queueStatus" class="queue-meta">Loading queue…</div>
+      <div id="queueReadyGroup" class="hidden">
+        <div class="queue-group-title">Ready for approval</div>
+        <div class="queue-list" id="queueReadyList"></div>
+      </div>
+      <div id="queueWaitingGroup" class="hidden">
+        <div class="queue-group-title">Waiting for 1 hour</div>
+        <div class="queue-list" id="queueWaitingList"></div>
+      </div>
+      <div id="queueEmpty" class="queue-empty hidden">No unboosted videos in the last 24 hours.</div>
+      <div id="queueError" class="queue-error hidden"></div>
+    </section>
+
+    <h2 class="manual-section-title">Manual boost</h2>
+
+    <div id="donePanel">
+      <div id="donePanelInner" class="done-panel success">
+        <div class="done-icon" id="doneIcon">✓</div>
+        <h2 class="done-title" id="doneTitle">Video boosted</h2>
+        <p class="done-sub" id="doneSub"></p>
+        <div class="done-video hidden" id="doneVideo"></div>
+      </div>
+      <button type="button" id="nextVideoBtn">Boost next video →</button>
+    </div>
+
+    <form id="boostForm" novalidate>
+      <div id="inputSection">
+        <label for="url">Video URL</label>
+        <input
+          type="text"
+          id="url"
+          name="url"
+          placeholder="https://www.tiktok.com/@user/video/..."
+          required
+          autocomplete="off"
+          spellcheck="false"
+        >
+
+        <div id="videoStats" class="hidden"></div>
+
+        <span class="stat-label" style="margin-bottom:8px;display:block">Boost type</span>
+        <div class="mode-picker">
+          <label class="mode-option">
+            <input type="radio" name="boostMode" value="full" checked>
+            <span class="mode-name">Full pack</span>
+            <span class="mode-desc">480–750 views · 10–14 likes (tiered)</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="boostMode" value="lower">
+            <span class="mode-name">Lower boost</span>
+            <span class="mode-desc">{{ low_views_qty }} views · {{ likes_qty }} likes</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="boostMode" value="views_only">
+            <span class="mode-name">Views only</span>
+            <span class="mode-desc">Custom amount · service {{ views_service }}</span>
+          </label>
+          <label class="mode-option">
+            <input type="radio" name="boostMode" value="likes_only">
+            <span class="mode-name">Likes only</span>
+            <span class="mode-desc">Custom amount · service {{ likes_service }}</span>
+          </label>
+        </div>
+
+        <div id="viewsOnlyQtyRow" class="qty-row hidden">
+          <label for="viewsOnlyCustom">Number of views</label>
+          <input
+            type="number"
+            id="viewsOnlyCustom"
+            min="{{ views_min }}"
+            step="1"
+            value="{{ views_only_qty }}"
+          >
+          <p class="qty-hint">Minimum {{ views_min }} views (service {{ views_service }})</p>
+        </div>
+
+        <div id="likesOnlyQtyRow" class="qty-row hidden">
+          <label for="likesOnlyCustom">Number of likes</label>
+          <input
+            type="number"
+            id="likesOnlyCustom"
+            min="{{ likes_min }}"
+            step="1"
+            value="{{ likes_only_qty }}"
+          >
+          <p class="qty-hint">Minimum {{ likes_min }} likes (service {{ likes_service }})</p>
+        </div>
+
+        <div class="pack" id="packSummary"></div>
+      </div>
+
+      <button type="submit" id="submitBtn">Send boost</button>
+    </form>
+
+    <div id="result" class="hidden"></div>
+  </div>
+
+  <script>
+    const appCard = document.getElementById("appCard");
+    const form = document.getElementById("boostForm");
+    const result = document.getElementById("result");
+    const submitBtn = document.getElementById("submitBtn");
+    const nextVideoBtn = document.getElementById("nextVideoBtn");
+    const donePanel = document.getElementById("donePanel");
+    const donePanelInner = document.getElementById("donePanelInner");
+    const doneIcon = document.getElementById("doneIcon");
+    const doneTitle = document.getElementById("doneTitle");
+    const doneSub = document.getElementById("doneSub");
+    const doneVideo = document.getElementById("doneVideo");
+    const pageSub = document.getElementById("pageSub");
+    const balanceLine = document.getElementById("balanceLine");
+    const urlInput = document.getElementById("url");
+    const videoStats = document.getElementById("videoStats");
+    const viewsService = {{ views_service }};
+    const viewsQty = {{ views_qty }};
+    const lowViewsQty = {{ low_views_qty }};
+    const viewsOnlyDefault = {{ views_only_qty }};
+    const viewsMin = {{ views_min | default(100) }};
+    const viewsOnlyCustom = document.getElementById("viewsOnlyCustom");
+    const viewsOnlyQtyRow = document.getElementById("viewsOnlyQtyRow");
+    const likesService = {{ likes_service }};
+    const likesQty = {{ likes_qty }};
+    const fullLikesMin = {{ full_likes_min }};
+    const fullLikesMax = {{ full_likes_max }};
+    const fullViewsLow = {{ full_views_low }};
+    const fullViewsMid = {{ full_views_mid }};
+    const fullViewsHigh = {{ full_views_high }};
+    const fullViewsUltra = {{ full_views_ultra }};
+    const likesOnlyDefault = {{ likes_only_qty }};
+    const likesMin = {{ likes_min | default(10) }};
+    const likesOnlyCustom = document.getElementById("likesOnlyCustom");
+    const likesOnlyQtyRow = document.getElementById("likesOnlyQtyRow");
+    const packSummary = document.getElementById("packSummary");
+    const modeInputs = document.querySelectorAll('input[name="boostMode"]');
+
+    let previewTimer = null;
+    let previewAbort = null;
+    let currentAlreadyBoosted = false;
+    let lastPreview = null;
+
+    function formatCount(n) {
+      return new Intl.NumberFormat().format(n);
+    }
+
+    function showStatsLoading() {
+      videoStats.classList.remove("hidden", "error");
+      videoStats.classList.add("loading");
+      videoStats.innerHTML = "Loading video stats…";
+    }
+
+    function showStatsError(message) {
+      videoStats.classList.remove("hidden", "loading");
+      videoStats.classList.add("error");
+      videoStats.textContent = message;
+    }
+
+    function getBoostMode() {
+      const selected = document.querySelector('input[name="boostMode"]:checked');
+      const value = selected?.value || "full";
+      if (value === "views_only" || value === "likes_only" || value === "lower") return value;
+      return "full";
+    }
+
+    function getViewsOnlyQty() {
+      const raw = parseInt(viewsOnlyCustom.value, 10);
+      return Number.isFinite(raw) && raw > 0 ? raw : viewsOnlyDefault;
+    }
+
+    function getLikesOnlyQty() {
+      const raw = parseInt(likesOnlyCustom.value, 10);
+      return Number.isFinite(raw) && raw > 0 ? raw : likesOnlyDefault;
+    }
+
+    function isSinglePackMode() {
+      const mode = getBoostMode();
+      return mode === "views_only" || mode === "likes_only";
+    }
+
+    function getPackAdds(currentLikes) {
+      const mode = getBoostMode();
+      if (mode === "views_only") {
+        return { views: getViewsOnlyQty(), likes: 0 };
+      }
+      if (mode === "likes_only") {
+        return { views: 0, likes: getLikesOnlyQty() };
+      }
+      if (mode === "lower") {
+        return { views: lowViewsQty, likes: likesQty };
+      }
+      if (mode === "full") {
+        const likesVal = currentLikes !== undefined ? currentLikes : (lastPreview ? lastPreview.likes : 0);
+        let viewsMin, viewsMax;
+        if (likesVal === 0) {
+          viewsMin = fullViewsLow;
+          viewsMax = fullViewsLow;
+        } else if (likesVal <= 7) {
+          viewsMin = fullViewsMid;
+          viewsMax = fullViewsMid;
+        } else if (likesVal < 20) {
+          viewsMin = fullViewsHigh;
+          viewsMax = fullViewsHigh;
+        } else {
+          viewsMin = fullViewsUltra;
+          viewsMax = fullViewsUltra;
+        }
+        return {
+          views: null,
+          viewsMin: viewsMin,
+          viewsMax: viewsMax,
+          likes: null,
+          likesMin: fullLikesMin,
+          likesMax: fullLikesMax,
+        };
+      }
+      return { views: viewsQty, likes: likesQty };
+    }
+
+    function updateModeUi() {
+      const mode = getBoostMode();
+      viewsOnlyQtyRow.classList.toggle("hidden", mode !== "views_only");
+      viewsOnlyCustom.disabled = mode !== "views_only";
+      likesOnlyQtyRow.classList.toggle("hidden", mode !== "likes_only");
+      likesOnlyCustom.disabled = mode !== "likes_only";
+      renderPackSummary();
+      setBoostAllowed(!currentAlreadyBoosted);
+      if (lastPreview && !appCard.classList.contains("mode-done")) {
+        showStats(lastPreview);
+      }
+    }
+
+    function renderPackSummary() {
+      const mode = getBoostMode();
+      if (mode === "views_only") {
+        const qty = getViewsOnlyQty();
+        packSummary.innerHTML = `
+          <div class="pack-item">
+            <span>Views</span>
+            ${formatCount(qty)} · service ${viewsService}
+          </div>`;
+        packSummary.style.gridTemplateColumns = "1fr";
+        return;
+      }
+      if (mode === "likes_only") {
+        const qty = getLikesOnlyQty();
+        packSummary.innerHTML = `
+          <div class="pack-item">
+            <span>Likes</span>
+            ${formatCount(qty)} · service ${likesService}
+          </div>`;
+        packSummary.style.gridTemplateColumns = "1fr";
+        return;
+      }
+      if (mode === "lower") {
+        packSummary.style.gridTemplateColumns = "";
+        packSummary.innerHTML = `
+          <div class="pack-item"><span>Views</span>${lowViewsQty} · service ${viewsService}</div>
+          <div class="pack-item"><span>Likes</span>${likesQty} · service ${likesService}</div>`;
+        return;
+      }
+      packSummary.style.gridTemplateColumns = "";
+      packSummary.innerHTML = `
+        <div class="pack-item"><span>Views</span>${fullViewsLow}–${fullViewsUltra} · service ${viewsService}</div>
+        <div class="pack-item"><span>Likes</span>${fullLikesMin}–${fullLikesMax} · service ${likesService}</div>
+        <div class="pack-item" style="grid-column: 1 / -1">
+          <span>Tiers</span>
+          0 likes → 480 views · 1–7 → 541 · 8–19 → 650 · ≥20 → 750 (all get 10–14 likes)
+        </div>`;
+    }
+
+    function exitDoneModeKeepUrl() {
+      appCard.classList.remove("mode-done");
+      appCard.classList.add("mode-input");
+      urlInput.disabled = false;
+      pageSub.textContent = "Approve boosts from your profile queue, or paste a URL manually.";
+      result.classList.add("hidden");
+      result.innerHTML = "";
+      currentAlreadyBoosted = false;
+      setBoostAllowed(true);
+    }
+
+    modeInputs.forEach((input) => {
+      input.addEventListener("change", () => {
+        if (isSinglePackMode() && appCard.classList.contains("mode-done")) {
+          exitDoneModeKeepUrl();
+        }
+        updateModeUi();
+        const url = urlInput.value.trim();
+        if (url.length >= 12) {
+          fetchVideoStats(url);
+        }
+      });
+    });
+    viewsOnlyCustom.addEventListener("input", () => updateModeUi());
+    likesOnlyCustom.addEventListener("input", () => updateModeUi());
+    updateModeUi();
+
+    function setBoostAllowed(allowed) {
+      currentAlreadyBoosted = !allowed;
+      submitBtn.disabled = !allowed;
+      if (!allowed) {
+        submitBtn.textContent = "Already boosted";
+        return;
+      }
+      const mode = getBoostMode();
+      if (mode === "views_only") {
+        submitBtn.textContent = `Send ${formatCount(getViewsOnlyQty())} views`;
+      } else if (mode === "likes_only") {
+        submitBtn.textContent = `Send ${formatCount(getLikesOnlyQty())} likes`;
+      } else if (mode === "lower") {
+        submitBtn.textContent = "Send lower boost";
+      } else {
+        submitBtn.textContent = "Send full boost";
+      }
+    }
+
+    function enterDoneMode({ type, title, sub, videoLabel, videoUrl }) {
+      appCard.classList.remove("mode-input");
+      appCard.classList.add("mode-done");
+      donePanelInner.classList.remove("success", "warning");
+      donePanelInner.classList.add(type === "warning" ? "warning" : "success");
+      doneIcon.textContent = type === "warning" ? "!" : "✓";
+      doneTitle.textContent = title;
+      doneSub.textContent = sub;
+      pageSub.textContent = type === "warning"
+        ? "This video is in your boost history."
+        : "Orders placed. Ready for another video when you are.";
+      if (videoUrl) {
+        doneVideo.classList.remove("hidden");
+        doneVideo.innerHTML = videoLabel
+          ? `<strong>${videoLabel}</strong><br>${videoUrl}`
+          : videoUrl;
+      } else {
+        doneVideo.classList.add("hidden");
+        doneVideo.textContent = "";
+      }
+      urlInput.disabled = true;
+      setBoostAllowed(false);
+    }
+
+    function resetForNextVideo() {
+      appCard.classList.remove("mode-done");
+      appCard.classList.add("mode-input");
+      pageSub.textContent = "Approve boosts from your profile queue, or paste a URL manually.";
+      urlInput.disabled = false;
+      urlInput.value = "";
+      videoStats.classList.add("hidden");
+      videoStats.innerHTML = "";
+      result.classList.add("hidden");
+      result.innerHTML = "";
+      currentAlreadyBoosted = false;
+      lastPreview = null;
+      setBoostAllowed(true);
+      urlInput.focus();
+    }
+
+    nextVideoBtn.addEventListener("click", resetForNextVideo);
+
+    function showAlreadyBoostedDone(data) {
+      const when = formatBoostedAt(data.boosted_at);
+      const label = data.author ? `@${data.author}` : (data.video_id ? `Video ${data.video_id}` : "");
+      enterDoneMode({
+        type: "warning",
+        title: "Already boosted",
+        sub: when
+          ? `Full pack already sent on ${when}. Use Views only or Likes only to add more, or paste a different video.`
+          : "Full pack already sent for this video. Use Views only or Likes only to add more, or paste a different video.",
+        videoLabel: label,
+        videoUrl: data.url || data.previous_url || urlInput.value.trim(),
+      });
+    }
+
+    function showSinglePackSuccess(data, type) {
+      const isViews = type === "views";
+      const order = isViews ? data.views : data.likes;
+      const orderId = order?.order;
+      const qty = order?.quantity || (isViews ? getViewsOnlyQty() : getLikesOnlyQty());
+      const label = isViews ? "views" : "likes";
+      result.classList.remove("hidden");
+      result.innerHTML = `
+        <div class="result-block ok">
+          <span class="tag ok">+${formatCount(qty)} ${label} sent</span><br>
+          ${orderId ? `Order ID: <strong>${orderId}</strong><br>` : ""}
+          You can send more ${label} to this same video.
+        </div>`;
+      setBoostAllowed(true);
+      if (data.balance && balanceLine) {
+        balanceLine.innerHTML =
+          `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
+      }
+      const url = urlInput.value.trim();
+      if (url.length >= 12) {
+        setTimeout(() => fetchVideoStats(url), 1200);
+      }
+    }
+
+    function showBoostSuccess(data) {
+      const label = lastPreview?.author
+        ? `@${lastPreview.author}`
+        : (data.video_id ? `Video ${data.video_id}` : "This video");
+      const orders = [];
+      if (data.views?.order) orders.push(`Views order #${data.views.order}`);
+      if (data.likes?.order) orders.push(`Likes order #${data.likes.order}`);
+      const viewQty = data.views?.quantity ?? viewsQty;
+      const likeQty = data.likes?.quantity ?? likesQty;
+      const added = `+${formatCount(viewQty)} views and +${formatCount(likeQty)} likes`;
+      const title = data.mode === "lower" ? "Lower boost sent" : "Video boosted";
+      enterDoneMode({
+        type: "success",
+        title,
+        sub: orders.length
+          ? `${label} — ${orders.join(" · ")}. ${added} are on the way.`
+          : `${label} — ${added} are on the way.`,
+        videoLabel: label,
+        videoUrl: data.url || urlInput.value.trim(),
+      });
+    }
+
+    function formatBoostedAt(iso) {
+      if (!iso) return "";
+      try {
+        return new Date(iso).toLocaleString();
+      } catch {
+        return iso;
+      }
+    }
+
+    function showStats(data) {
+      videoStats.classList.remove("hidden", "loading", "error");
+      const adds = getPackAdds(data.likes);
+      const afterViewsMin = adds.viewsMin != null ? data.views + adds.viewsMin : data.views + adds.views;
+      const afterViewsMax = adds.viewsMax != null ? data.views + adds.viewsMax : afterViewsMin;
+      let html = "";
+      lastPreview = data;
+      if (data.already_boosted && getBoostMode() === "full") {
+        showAlreadyBoostedDone(data);
+        return;
+      }
+      setBoostAllowed(true);
+      html += `<div class="stats-grid">
+        <div>
+          <div class="stat-label">Views</div>
+          <div class="stat-value">${formatCount(data.views)}</div>
+        </div>
+        <div>
+          <div class="stat-label">Likes</div>
+          <div class="stat-value">${formatCount(data.likes)}</div>
+        </div>
+      </div>`;
+      const mode = getBoostMode();
+      let afterLine;
+      if (mode === "views_only") {
+        afterLine = `After boost: <span>${formatCount(afterViewsMin)} views</span>`;
+      } else if (mode === "likes_only") {
+        afterLine = `After boost: <span>${formatCount(data.likes + adds.likes)} likes</span>`;
+      } else if (mode === "full") {
+        const viewsStr = afterViewsMin === afterViewsMax ? formatCount(afterViewsMin) : `${formatCount(afterViewsMin)}–${formatCount(afterViewsMax)}`;
+        const likesStr = (adds.likesMin === adds.likesMax) ? formatCount(data.likes + adds.likesMin) : `${formatCount(data.likes + adds.likesMin)}–${formatCount(data.likes + adds.likesMax)}`;
+        afterLine = `After boost: <span>${viewsStr} views</span> · <span>${likesStr} likes</span>`;
+      } else {
+        afterLine = `After boost: <span>${formatCount(afterViewsMin)} views</span> · <span>${formatCount(data.likes + adds.likes)} likes</span>`;
+      }
+      html += `<div class="after-boost">${afterLine}</div>`;
+      if (data.author || data.title) {
+        html += `<div class="video-meta">`;
+        if (data.author) html += `@<strong>${data.author}</strong><br>`;
+        if (data.title) html += data.title;
+        html += `</div>`;
+      }
+      videoStats.innerHTML = html;
+    }
+
+    async function fetchVideoStats(url) {
+      if (previewAbort) previewAbort.abort();
+      previewAbort = new AbortController();
+      showStatsLoading();
+      try {
+        const res = await fetch("/api/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, mode: getBoostMode() }),
+          signal: previewAbort.signal,
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          if (!appCard.classList.contains("mode-done")) {
+            setBoostAllowed(true);
+          }
+          showStatsError(data.error || "Could not load stats.");
+          return;
+        }
+        showStats(data);
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        showStatsError("Network error loading stats.");
+      }
+    }
+
+    urlInput.addEventListener("input", () => {
+      clearTimeout(previewTimer);
+      const url = urlInput.value.trim();
+      if (!url || url.length < 12) {
+        if (!appCard.classList.contains("mode-done")) {
+          videoStats.classList.add("hidden");
+          setBoostAllowed(true);
+        }
+        return;
+      }
+      if (appCard.classList.contains("mode-done")) return;
+      previewTimer = setTimeout(() => fetchVideoStats(url), 700);
+    });
+
+    function renderOrder(label, data) {
+      const ok = data.ok;
+      const cls = ok ? "ok" : "fail";
+      const tag = ok ? "OK" : "Failed";
+      let html = `<div class="result-block ${cls}">`;
+      html += `<span class="tag ${cls}">${label}: ${tag}</span><br>`;
+      html += `Service ${data.service} · qty ${data.quantity}<br>`;
+      if (ok && data.order) html += `Order ID: <strong>${data.order}</strong>`;
+      if (!ok && data.error) html += `Error: ${data.error}`;
+      html += `</div>`;
+      return html;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const url = document.getElementById("url").value.trim();
+      if (!url) return;
+      if (currentAlreadyBoosted) {
+        result.classList.remove("hidden");
+        result.innerHTML = `<div class="result-block fail">This video already received the full boost pack. Switch to <strong>Views only</strong> or <strong>Likes only</strong>.</div>`;
+        return;
+      }
+
+      const mode = getBoostMode();
+      if (mode === "views_only" && getViewsOnlyQty() < viewsMin) {
+        result.classList.remove("hidden");
+        result.innerHTML = `<div class="result-block fail">Minimum is ${formatCount(viewsMin)} views.</div>`;
+        return;
+      }
+      if (mode === "likes_only" && getLikesOnlyQty() < likesMin) {
+        result.classList.remove("hidden");
+        result.innerHTML = `<div class="result-block fail">Minimum is ${formatCount(likesMin)} likes.</div>`;
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.classList.add("primary-busy");
+      submitBtn.textContent = "Sending…";
+      result.classList.remove("hidden");
+      result.innerHTML = "<p style='color:var(--muted)'>Placing orders…</p>";
+
+      try {
+        const res = await fetch("/api/boost", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url,
+            mode: getBoostMode(),
+            quantity: isSinglePackMode()
+              ? (getBoostMode() === "views_only" ? getViewsOnlyQty() : getLikesOnlyQty())
+              : undefined,
+          }),
+        });
+        const data = await res.json();
+
+        if ((res.status === 409 || data.already_boosted) && getBoostMode() === "full") {
+          showAlreadyBoostedDone({
+            ...data,
+            url: data.previous_url || url,
+            author: lastPreview?.author,
+            video_id: data.video_id,
+          });
+          return;
+        }
+
+        if (data.error && !data.views && !data.likes) {
+          result.classList.remove("hidden");
+          result.innerHTML = `<div class="result-block fail">${data.error}</div>`;
+          return;
+        }
+
+        if (data.ok) {
+          if (data.mode === "views_only") {
+            showSinglePackSuccess(data, "views");
+            return;
+          }
+          if (data.mode === "likes_only") {
+            showSinglePackSuccess(data, "likes");
+            return;
+          }
+          if (data.mode === "lower" || data.mode === "full") {
+            if (data.balance && balanceLine) {
+              balanceLine.innerHTML =
+                `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
+            }
+            showBoostSuccess(data);
+            return;
+          }
+        }
+
+        result.classList.remove("hidden");
+        let html = "";
+        if (data.views) html += renderOrder("Views", data.views);
+        if (data.likes) html += renderOrder("Likes", data.likes);
+        html += `<p style="color:var(--muted);margin-top:10px">Fix the failed order, then boost another video.</p>`;
+        result.innerHTML = html;
+      } catch (err) {
+        result.classList.remove("hidden");
+        result.innerHTML = `<div class="result-block fail">Network error: ${err.message}</div>`;
+      } finally {
+        submitBtn.classList.remove("primary-busy");
+        if (!appCard.classList.contains("mode-done")) {
+          setBoostAllowed(true);
+        }
+      }
+    });
+
+    const queueStatus = document.getElementById("queueStatus");
+    const queueReadyGroup = document.getElementById("queueReadyGroup");
+    const queueWaitingGroup = document.getElementById("queueWaitingGroup");
+    const queueReadyList = document.getElementById("queueReadyList");
+    const queueWaitingList = document.getElementById("queueWaitingList");
+    const queueEmpty = document.getElementById("queueEmpty");
+    const queueError = document.getElementById("queueError");
+    const refreshQueueBtn = document.getElementById("refreshQueueBtn");
+    let queueRefreshTimer = null;
+
+    function formatPostedAt(iso) {
+      if (!iso) return "";
+      try {
+        return new Date(iso).toLocaleString();
+      } catch {
+        return iso;
+      }
+    }
+
+    function formatWait(seconds) {
+      const mins = Math.ceil(Math.max(0, seconds) / 60);
+      if (mins < 60) return `${mins} min`;
+      const hrs = Math.floor(mins / 60);
+      const rem = mins % 60;
+      return rem ? `${hrs}h ${rem}m` : `${hrs}h`;
+    }
+
+    function renderQueueItem(item, { approvable }) {
+      const thumb = item.cover
+        ? `<img src="${item.cover}" alt="">`
+        : `<div class="queue-thumb"></div>`;
+      const badge = approvable
+        ? `<span class="queue-badge ready">Ready</span>`
+        : `<span class="queue-badge waiting">Ready in ${formatWait(item.seconds_until_ready || 0)}</span>`;
+      const action = approvable
+        ? `<button type="button" class="queue-approve" data-queue-url="${item.url}">Approve boost</button>`
+        : "";
+      return `
+        <div class="queue-item">
+          ${thumb}
+          <div>
+            <div class="queue-title">${item.title || "Untitled video"}</div>
+            <div class="queue-stats">
+              Posted ${formatPostedAt(item.posted_at)}<br>
+              ${formatCount(item.views)} views · ${formatCount(item.likes)} likes
+            </div>
+            ${badge}
+          </div>
+          ${action}
+        </div>`;
+    }
+
+    function renderQueue(data) {
+      queueError.classList.add("hidden");
+      queueError.textContent = "";
+
+      if (!data.ok) {
+        queueStatus.textContent = "Could not load queue.";
+        queueReadyGroup.classList.add("hidden");
+        queueWaitingGroup.classList.add("hidden");
+        queueEmpty.classList.add("hidden");
+        queueError.textContent = data.error || "Unknown error";
+        queueError.classList.remove("hidden");
+        return;
+      }
+
+      const ready = data.ready || [];
+      const waiting = data.waiting || [];
+      queueStatus.textContent =
+        `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted`;
+
+      queueReadyList.innerHTML = ready.map((item) => renderQueueItem(item, { approvable: true })).join("");
+      queueWaitingList.innerHTML = waiting.map((item) => renderQueueItem(item, { approvable: false })).join("");
+
+      queueReadyGroup.classList.toggle("hidden", ready.length === 0);
+      queueWaitingGroup.classList.toggle("hidden", waiting.length === 0);
+      queueEmpty.classList.toggle("hidden", ready.length > 0 || waiting.length > 0);
+
+      queueReadyList.querySelectorAll("[data-queue-url]").forEach((btn) => {
+        btn.addEventListener("click", () => approveQueueBoost(btn));
+      });
+    }
+
+    async function loadQueue(forceRefresh = false) {
+      refreshQueueBtn.disabled = true;
+      queueStatus.textContent = forceRefresh ? "Refreshing queue…" : "Loading queue…";
+      try {
+        const res = await fetch(`/api/queue${forceRefresh ? "?refresh=1" : ""}`);
+        const data = await res.json();
+        renderQueue(data);
+      } catch (err) {
+        queueStatus.textContent = "Could not load queue.";
+        queueError.textContent = err.message;
+        queueError.classList.remove("hidden");
+      } finally {
+        refreshQueueBtn.disabled = false;
+      }
+    }
+
+    async function approveQueueBoost(button) {
+      const url = button.dataset.queueUrl;
+      if (!url) return;
+      button.disabled = true;
+      button.textContent = "Sending…";
+      try {
+        const res = await fetch("/api/boost", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, mode: "full", from_queue: true }),
+        });
+        const data = await res.json();
+        if (data.ok) {
+          if (data.balance && balanceLine) {
+            balanceLine.innerHTML =
+              `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
+          }
+          await loadQueue(true);
+          return;
+        }
+        button.disabled = false;
+        button.textContent = "Approve boost";
+        alert(data.error || "Boost failed.");
+      } catch (err) {
+        button.disabled = false;
+        button.textContent = "Approve boost";
+        alert(`Network error: ${err.message}`);
+      }
+    }
+
+    refreshQueueBtn.addEventListener("click", () => loadQueue(true));
+    loadQueue(false);
+    queueRefreshTimer = setInterval(() => loadQueue(false), 60000);
+  </script>
+</body>
+</html>

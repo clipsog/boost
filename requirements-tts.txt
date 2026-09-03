@@ -1,0 +1,6 @@
+-r requirements.txt
+kokoro>=0.9.4
+soundfile>=0.14.0
+numpy>=2.0.0
+moviepy>=2.0.0
+pillow>=10.0.0

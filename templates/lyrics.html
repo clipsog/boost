@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lyrics Video</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --panel: #14141c;
+      --border: #2a2a38;
+      --text: #f0f0f5;
+      --muted: #8888a0;
+      --accent: #ff3366;
+      --accent-hover: #ff5580;
+      --ok: #22c55e;
+      --err: #ef4444;
+      --active: #ffcc00;
+      --spoken: #ffffff;
+      --idle: rgba(255, 255, 255, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+
+    header {
+      margin-bottom: 32px;
+    }
+
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 1.8rem;
+      font-weight: 700;
+    }
+
+    header p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+
+    .card h2 {
+      margin: 0 0 16px;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+
+    .dropzone:hover,
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(255, 51, 102, 0.05);
+    }
+
+    .dropzone input { display: none; }
+
+    .dropzone strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 1rem;
+    }
+
+    .dropzone span {
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    .preview-wrap {
+      display: flex;
+      justify-content: center;
+      margin-top: 20px;
+    }
+
+    .phone {
+      width: 220px;
+      aspect-ratio: 9 / 16;
+      border-radius: 16px;
+      overflow: hidden;
+      position: relative;
+      background:
+        linear-gradient(45deg, #222 25%, transparent 25%),
+        linear-gradient(-45deg, #222 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #222 75%),
+        linear-gradient(-45deg, transparent 75%, #222 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+      border: 2px solid var(--border);
+    }
+
+    .caption-preview {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 0 12px 18%;
+    }
+
+    .caption-text {
+      text-align: center;
+      font-family: Impact, "Arial Black", sans-serif;
+      font-size: 0.72rem;
+      font-weight: 900;
+      line-height: 1.3;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      text-shadow:
+        -1px -1px 0 #000, 1px -1px 0 #000,
+        -1px 1px 0 #000, 1px 1px 0 #000;
+    }
+
+    .caption-word {
+      display: inline-block;
+      margin: 0 0.12em;
+      color: var(--idle);
+      transition: color 0.08s;
+    }
+
+    .caption-word.spoken { color: var(--spoken); }
+    .caption-word.active { color: var(--active); }
+
+    .caption-placeholder {
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-align: center;
+      padding: 20px;
+    }
+
+    audio {
+      width: 100%;
+      margin-top: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="number"],
+    select,
+    textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 0.9rem;
+      margin-bottom: 14px;
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn {
+      width: 100%;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font: inherit;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      margin-top: 8px;
+    }
+
+    .btn-secondary:hover:not(:disabled) { border-color: var(--muted); }
+
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    .download-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .status {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      min-height: 1.2em;
+      color: var(--muted);
+    }
+
+    .status.ok { color: var(--ok); }
+    .status.error { color: var(--err); }
+
+    .transcript {
+      margin-top: 16px;
+      padding: 12px;
+      background: var(--bg);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: var(--muted);
+      max-height: 100px;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Lyrics Video</h1>
+      <p>Upload a song, auto-transcribe the lyrics, and export for TikTok or iPhone.</p>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Audio</h2>
+        <label class="dropzone" id="dropzone">
+          <input type="file" id="audio-input" accept="audio/*,video/*,.mp3,.m4a,.wav,.aac,.ogg,.flac">
+          <strong>Drop audio here or click to upload</strong>
+          <span>MP3, M4A, WAV, AAC — up to ~3 min recommended</span>
+        </label>
+
+        <audio id="player" controls hidden></audio>
+
+        <div class="preview-wrap">
+          <div class="phone">
+            <div class="caption-preview" id="caption-preview">
+              <div class="caption-placeholder" id="caption-placeholder">Upload audio to preview lyrics</div>
+              <div class="caption-text" id="caption-text" hidden></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="transcript" id="transcript" hidden></div>
+        <div class="status" id="status"></div>
+      </section>
+
+      <aside class="card">
+        <h2>Export</h2>
+
+        <label for="words-per-phrase">Words per line</label>
+        <select id="words-per-phrase">
+          <option value="3">3 words</option>
+          <option value="4" selected>4 words</option>
+          <option value="5">5 words</option>
+          <option value="6">6 words</option>
+        </select>
+
+        <label for="font-size">Font size</label>
+        <input type="number" id="font-size" value="72" min="40" max="120">
+
+        <div class="field-row">
+          <div>
+            <label for="width">Width</label>
+            <input type="number" id="width" value="1080" min="720" max="2160">
+          </div>
+          <div>
+            <label for="height">Height</label>
+            <input type="number" id="height" value="1920" min="1280" max="3840">
+          </div>
+        </div>
+
+        <label for="lyrics-edit">Edit lyrics (one word per line: word | start | end)</label>
+        <textarea id="lyrics-edit" placeholder="Upload audio first…" disabled></textarea>
+
+        <button type="button" class="btn btn-primary" id="render-hevc" disabled>Download MOV — transparent (iPhone / CapCut)</button>
+        <button type="button" class="btn btn-primary" id="render-tiktok" disabled style="margin-top:8px">Download MP4 — TikTok (black + white)</button>
+        <div class="download-row">
+          <button type="button" class="btn btn-secondary" id="render-webm" disabled>WebM</button>
+          <button type="button" class="btn btn-secondary" id="render-mp4" disabled>MP4 preview</button>
+        </div>
+        <p style="margin:12px 0 0;font-size:0.78rem;color:var(--muted);line-height:1.45">
+          <strong style="color:var(--text)">TikTok:</strong> use the black + white MP4 — upload directly to TikTok, no effects needed.<br><br>
+          <strong style="color:var(--text)">iPhone gallery:</strong> use the transparent MOV — plays with invisible background in Photos and CapCut.
+        </p>
+        <button type="button" class="btn btn-secondary" id="retranscribe" disabled>Re-transcribe</button>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const audioInput = document.getElementById('audio-input');
+    const player = document.getElementById('player');
+    const statusEl = document.getElementById('status');
+    const captionPlaceholder = document.getElementById('caption-placeholder');
+    const captionText = document.getElementById('caption-text');
+    const transcriptEl = document.getElementById('transcript');
+    const lyricsEdit = document.getElementById('lyrics-edit');
+    const renderHevcBtn = document.getElementById('render-hevc');
+    const renderTiktokBtn = document.getElementById('render-tiktok');
+    const renderWebmBtn = document.getElementById('render-webm');
+    const renderMp4Btn = document.getElementById('render-mp4');
+    const retranscribeBtn = document.getElementById('retranscribe');
+
+    let sessionId = null;
+    let words = [];
+    let phrases = [];
+    let captionNodes = [];
+    let rafId = null;
+    let audioUrl = null;
+
+    function setStatus(msg, kind = '') {
+      statusEl.textContent = msg;
+      statusEl.className = 'status' + (kind ? ` ${kind}` : '');
+    }
+
+    function buildPhrases(allWords, maxWords = 4) {
+      const groups = [];
+      let current = [];
+      for (const word of allWords) {
+        current.push(word);
+        const endsSentence = /[.!?…]$/.test(word.text);
+        if (current.length >= maxWords || endsSentence) {
+          groups.push(current);
+          current = [];
+        }
+      }
+      if (current.length) groups.push(current);
+      return groups;
+    }
+
+    function findPhraseIndex(time) {
+      for (let i = 0; i < phrases.length; i++) {
+        const phrase = phrases[i];
+        if (time >= phrase[0].start && time <= phrase[phrase.length - 1].end + 0.05) return i;
+      }
+      for (let i = phrases.length - 1; i >= 0; i--) {
+        if (time >= phrases[i][0].start) return i;
+      }
+      return 0;
+    }
+
+    function renderPhrase(phraseIndex) {
+      const phrase = phrases[phraseIndex] || [];
+      captionText.innerHTML = '';
+      captionNodes = phrase.map((word) => {
+        const span = document.createElement('span');
+        span.className = 'caption-word';
+        span.textContent = word.text.toUpperCase();
+        span.dataset.start = String(word.start);
+        span.dataset.end = String(word.end);
+        captionText.appendChild(span);
+        return span;
+      });
+    }
+
+    function updateCaption(time) {
+      if (!captionNodes.length) return;
+      const phraseIndex = findPhraseIndex(time);
+      const expectedStart = phrases[phraseIndex]?.[0]?.start;
+      const currentStart = Number(captionNodes[0]?.dataset.start || -1);
+      if (expectedStart !== currentStart) renderPhrase(phraseIndex);
+      for (const node of captionNodes) {
+        const start = Number(node.dataset.start);
+        const end = Number(node.dataset.end);
+        node.classList.remove('active', 'spoken');
+        if (time >= end) node.classList.add('spoken');
+        else if (time >= start) node.classList.add('active');
+      }
+    }
+
+    function stopCaptionLoop() {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    }
+
+    function startCaptionLoop() {
+      stopCaptionLoop();
+      const tick = () => {
+        updateCaption(player.currentTime || 0);
+        if (!player.paused && !playerElEnded()) rafId = requestAnimationFrame(tick);
+        else rafId = null;
+      };
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function playerElEnded() {
+      return player.ended;
+    }
+
+    player.addEventListener('play', startCaptionLoop);
+    player.addEventListener('seeked', () => updateCaption(player.currentTime || 0));
+    player.addEventListener('timeupdate', () => {
+      if (rafId === null) updateCaption(player.currentTime || 0);
+    });
+    player.addEventListener('pause', stopCaptionLoop);
+    player.addEventListener('ended', () => {
+      stopCaptionLoop();
+      updateCaption(player.duration || 0);
+    });
+
+    function wordsToEditText(allWords) {
+      return allWords.map((w) => `${w.text} | ${w.start} | ${w.end}`).join('\n');
+    }
+
+    function parseEditText(text) {
+      const parsed = [];
+      for (const line of text.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parts = trimmed.split('|').map((p) => p.trim());
+        if (parts.length < 3) continue;
+        parsed.push({
+          text: parts[0],
+          start: parseFloat(parts[1]),
+          end: parseFloat(parts[2]),
+        });
+      }
+      return parsed;
+    }
+
+    function showLyrics(payload) {
+      sessionId = payload.session_id;
+      words = payload.words || [];
+      const maxWords = Number(document.getElementById('words-per-phrase').value);
+      phrases = buildPhrases(words, maxWords);
+
+      captionPlaceholder.hidden = true;
+      captionText.hidden = false;
+      renderPhrase(0);
+      updateCaption(0);
+
+      transcriptEl.hidden = false;
+      transcriptEl.textContent = payload.transcript || '';
+
+      lyricsEdit.disabled = false;
+      lyricsEdit.value = wordsToEditText(words);
+
+      renderHevcBtn.disabled = false;
+      renderTiktokBtn.disabled = false;
+      renderWebmBtn.disabled = false;
+      renderMp4Btn.disabled = false;
+      retranscribeBtn.disabled = false;
+    }
+
+    document.getElementById('words-per-phrase').addEventListener('change', () => {
+      if (!words.length) return;
+      phrases = buildPhrases(words, Number(document.getElementById('words-per-phrase').value));
+      renderPhrase(findPhraseIndex(player.currentTime || 0));
+      updateCaption(player.currentTime || 0);
+    });
+
+    async function uploadFile(file) {
+      if (!file) return;
+
+      setStatus('Uploading and transcribing…');
+      renderHevcBtn.disabled = true;
+      renderTiktokBtn.disabled = true;
+      renderWebmBtn.disabled = true;
+      renderMp4Btn.disabled = true;
+      retranscribeBtn.disabled = true;
+
+      const form = new FormData();
+      form.append('audio', file);
+
+      try {
+        const response = await fetch('/api/upload', { method: 'POST', body: form });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          setStatus(payload.error || 'Upload failed.', 'error');
+          return;
+        }
+
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        audioUrl = URL.createObjectURL(file);
+        player.src = audioUrl;
+        player.hidden = false;
+
+        showLyrics(payload);
+        setStatus(`Ready — ${payload.words?.length || 0} words, ${payload.duration?.toFixed(1)}s`, 'ok');
+        player.play().catch(() => {});
+      } catch (err) {
+        setStatus(`Error: ${err.message}`, 'error');
+      }
+    }
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      uploadFile(e.dataTransfer.files[0]);
+    });
+    audioInput.addEventListener('change', () => uploadFile(audioInput.files[0]));
+
+    function getRenderPayload(format) {
+      const edited = parseEditText(lyricsEdit.value);
+      return {
+        session_id: sessionId,
+        format,
+        words: edited.length ? edited : words,
+        duration: player.duration || words[words.length - 1]?.end || 0,
+        words_per_phrase: Number(document.getElementById('words-per-phrase').value),
+        font_size: Number(document.getElementById('font-size').value),
+        width: Number(document.getElementById('width').value),
+        height: Number(document.getElementById('height').value),
+        title: 'lyrics',
+      };
+    }
+
+    async function downloadVideo(format) {
+      if (!sessionId) {
+        setStatus('Upload audio first.', 'error');
+        return;
+      }
+
+      const buttons = [renderHevcBtn, renderTiktokBtn, renderWebmBtn, renderMp4Btn];
+      buttons.forEach((b) => { b.disabled = true; });
+      setStatus(`Rendering ${format.toUpperCase()}…`);
+
+      try {
+        const response = await fetch('/api/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(getRenderPayload(format)),
+        });
+
+        if (!response.ok) {
+          let message = 'Render failed.';
+          try {
+            const payload = await response.json();
+            message = payload.error || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `lyrics.${
+          format === 'hevc' || format === 'mov' ? 'mov'
+          : format === 'tiktok' || format === 'mp4' ? 'mp4'
+          : 'webm'
+        }`;
+        link.click();
+        URL.revokeObjectURL(url);
+        setStatus(`${format.toUpperCase()} downloaded.`, 'ok');
+      } catch (err) {
+        setStatus(err.message, 'error');
+      } finally {
+        buttons.forEach((b) => { b.disabled = false; });
+      }
+    }
+
+    renderHevcBtn.addEventListener('click', () => downloadVideo('hevc'));
+    renderTiktokBtn.addEventListener('click', () => downloadVideo('tiktok'));
+    renderWebmBtn.addEventListener('click', () => downloadVideo('webm'));
+    renderMp4Btn.addEventListener('click', () => downloadVideo('mp4'));
+
+    retranscribeBtn.addEventListener('click', async () => {
+      if (!sessionId) return;
+      setStatus('Re-transcribing…');
+      retranscribeBtn.disabled = true;
+      try {
+        const response = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          setStatus(payload.error || 'Transcription failed.', 'error');
+          return;
+        }
+        showLyrics(payload);
+        setStatus('Lyrics updated.', 'ok');
+      } catch (err) {
+        setStatus(err.message, 'error');
+      } finally {
+        retranscribeBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kokoro Document</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Montserrat:wght@800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --office-bg: #edebe9;
+      --office-ribbon: #f3f2f1;
+      --office-border: #d2d0ce;
+      --office-blue: #185abd;
+      --office-blue-hover: #104581;
+      --office-blue-light: #deecf9;
+      --office-text: #323130;
+      --office-muted: #605e5c;
+      --page-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 0 2px rgba(0, 0, 0, 0.08);
+      --caption-idle: rgba(255, 255, 255, 0.42);
+      --caption-spoken: #ffffff;
+      --caption-active: #ffcc00;
+      --ok: #107c10;
+      --err: #a4262c;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: "Segoe UI", "Calibri", system-ui, sans-serif;
+      color: var(--office-text);
+      background: var(--office-bg);
+    }
+
+    .app {
+      display: grid;
+      grid-template-rows: auto auto auto 1fr auto;
+      height: 100vh;
+    }
+
+    .title-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 8px 16px;
+      background: var(--office-blue);
+      color: #fff;
+      font-size: 0.9rem;
+    }
+
+    .title-bar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .title-bar .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+    }
+
+    .title-bar .logo {
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      background: #fff;
+      color: var(--office-blue);
+      display: grid;
+      place-items: center;
+      font-size: 0.75rem;
+      font-weight: 800;
+      flex-shrink: 0;
+    }
+
+    .file-menu {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .file-btn {
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border-radius: 2px;
+      padding: 5px 10px;
+      font: inherit;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+
+    .file-btn:hover { background: rgba(255, 255, 255, 0.18); }
+
+    .doc-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .doc-title-input {
+      border: 1px solid transparent;
+      background: transparent;
+      color: #fff;
+      font: inherit;
+      font-size: 0.88rem;
+      padding: 4px 8px;
+      border-radius: 2px;
+      min-width: 180px;
+      max-width: 320px;
+    }
+
+    .doc-title-input:hover,
+    .doc-title-input:focus {
+      border-color: rgba(255, 255, 255, 0.45);
+      background: rgba(255, 255, 255, 0.08);
+      outline: none;
+    }
+
+    .doc-dirty {
+      color: rgba(255, 255, 255, 0.75);
+      font-size: 1.1rem;
+      line-height: 1;
+      display: none;
+    }
+
+    .doc-dirty.visible { display: inline; }
+
+    .tab-row {
+      display: flex;
+      gap: 2px;
+      padding: 0 12px;
+      background: var(--office-ribbon);
+      border-bottom: 1px solid var(--office-border);
+    }
+
+    .tab-btn {
+      border: none;
+      background: transparent;
+      padding: 10px 16px;
+      font: inherit;
+      font-size: 0.88rem;
+      color: var(--office-muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tab-btn.active {
+      color: var(--office-blue);
+      border-bottom-color: var(--office-blue);
+      background: #fff;
+    }
+
+    .ribbon-area {
+      min-height: 125px;
+      background: #fff;
+      border-bottom: 1px solid var(--office-border);
+      overflow-x: auto;
+      overflow-y: hidden;
+      flex-shrink: 0;
+    }
+
+    .ribbon {
+      display: none;
+      gap: 4px;
+      padding: 10px 12px 8px;
+      background: #fff;
+      min-height: 125px;
+      align-items: flex-start;
+      width: max-content;
+      min-width: 100%;
+    }
+
+    .ribbon.active { display: flex; }
+
+    .ribbon-group {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 0 12px;
+      border-right: 1px solid var(--office-border);
+      min-height: 105px;
+      flex-shrink: 0;
+    }
+
+    .ribbon-group:last-child { border-right: none; }
+
+    .ribbon-group-label {
+      font-size: 0.68rem;
+      color: var(--office-muted);
+      text-align: center;
+      margin-top: auto;
+    }
+
+    .ribbon-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .ribbon-controls.row {
+      flex-direction: row;
+    }
+
+    .ribbon-controls.column {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    select, input[type="number"] {
+      border: 1px solid var(--office-border);
+      border-radius: 2px;
+      padding: 4px 6px;
+      font: inherit;
+      font-size: 0.85rem;
+      background: #fff;
+      color: var(--office-text);
+    }
+
+    .font-select { width: 130px; }
+    .size-select { width: 58px; }
+
+    .tool-btn {
+      min-width: 28px;
+      height: 28px;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      background: transparent;
+      color: var(--office-text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 0.85rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 6px;
+    }
+
+    .tool-btn:hover { background: var(--office-blue-light); }
+    .tool-btn.active {
+      background: var(--office-blue-light);
+      border-color: #90caf9;
+      color: var(--office-blue);
+    }
+
+    .tool-btn.bold { font-weight: 700; }
+    .tool-btn.italic { font-style: italic; }
+    .tool-btn.underline { text-decoration: underline; }
+
+    .color-btn {
+      position: relative;
+      width: 28px;
+      height: 28px;
+    }
+
+    .color-btn input[type="color"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .color-preview {
+      pointer-events: none;
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--office-border);
+      border-radius: 2px;
+      display: grid;
+      place-items: center;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .color-preview.highlight { background: linear-gradient(#ffff00 60%, transparent 60%); }
+    .color-preview.text-color { color: #c00000; }
+
+    .swatches {
+      display: flex;
+      gap: 3px;
+      flex-wrap: wrap;
+      max-width: 120px;
+    }
+
+    .swatch {
+      width: 16px;
+      height: 16px;
+      border: 1px solid rgba(0,0,0,0.15);
+      border-radius: 2px;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .document-area {
+      overflow: auto;
+      padding: 28px 20px 200px;
+      background: var(--office-bg);
+    }
+
+    .page {
+      width: min(816px, 100%);
+      min-height: 1056px;
+      margin: 0 auto 50px;
+      background: #fff;
+      box-shadow: var(--page-shadow);
+      padding: 96px;
+      outline: none;
+      font-family: Calibri, "Segoe UI", sans-serif;
+      font-size: 11pt;
+      line-height: 1.5;
+      color: #000;
+    }
+
+    .page:focus { box-shadow: var(--page-shadow), 0 0 0 2px rgba(24, 90, 189, 0.35); }
+
+    .page p { margin: 0 0 10pt; }
+    .page ul, .page ol { margin: 0 0 10pt 24pt; padding: 0; }
+    .page li { margin-bottom: 4pt; }
+    .page:empty::before {
+      content: "Start typing your script…";
+      color: #a19f9d;
+    }
+
+    .speech-panel {
+      background: #fff;
+      border-left: 1px solid var(--office-border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .panel-section {
+      padding: 16px;
+      border-bottom: 1px solid var(--office-border);
+    }
+
+    .panel-section h2 {
+      margin: 0 0 12px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--office-muted);
+    }
+
+    .panel-section label {
+      display: block;
+      font-size: 0.82rem;
+      color: var(--office-muted);
+      margin-bottom: 6px;
+    }
+
+    .panel-section select,
+    .panel-section input[type="range"] {
+      width: 100%;
+    }
+
+    .panel-section select {
+      padding: 8px 10px;
+      margin-bottom: 12px;
+    }
+
+    .speed-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .speed-row span {
+      min-width: 44px;
+      text-align: right;
+      font-size: 0.85rem;
+      color: var(--office-muted);
+    }
+
+    .primary-btn {
+      width: 100%;
+      border: none;
+      border-radius: 2px;
+      padding: 10px 14px;
+      background: var(--office-blue);
+      color: #fff;
+      font: inherit;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .primary-btn:hover:not(:disabled) { background: var(--office-blue-hover); }
+    .primary-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .status {
+      margin-top: 10px;
+      font-size: 0.82rem;
+      min-height: 1.2em;
+      color: var(--office-muted);
+    }
+    .status.error { color: var(--err); }
+    .status.ok { color: var(--ok); }
+
+    .progress-container {
+      margin-top: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      opacity: 1;
+      transition: opacity 0.3s ease;
+    }
+    
+    .progress-bar-wrapper {
+      width: 100%;
+      height: 6px;
+      background: #f3f2f1;
+      border-radius: 3px;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--office-blue) 0%, #0078d4 50%, var(--office-blue) 100%);
+      background-size: 200% auto;
+      border-radius: 3px;
+      transition: width 0.1s linear;
+      animation: progressGlow 1.5s linear infinite;
+    }
+    
+    @keyframes progressGlow {
+      0% { background-position: 0% 50%; }
+      100% { background-position: 200% 50%; }
+    }
+    
+    .progress-estimate {
+      font-size: 0.78rem;
+      color: var(--office-muted);
+      text-align: right;
+    }
+
+    /* Context Menu */
+    .context-menu {
+      position: fixed;
+      background: #fff;
+      border: 1px solid var(--office-border);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      border-radius: 4px;
+      padding: 4px 0;
+      z-index: 10000;
+      min-width: 150px;
+      display: none;
+      font-size: 0.85rem;
+    }
+    
+    .context-menu-item {
+      padding: 8px 14px;
+      cursor: pointer;
+      color: var(--office-text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s;
+    }
+    
+    .context-menu-item:hover {
+      background: #f3f2f1;
+      color: var(--office-blue);
+    }
+    
+    .context-menu-item svg {
+      color: var(--office-blue);
+      flex-shrink: 0;
+    }
+
+    .result { display: none; }
+    .result.visible { display: block; }
+
+    .caption-stage {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      max-height: 180px;
+      width: 100%;
+      margin: 0 auto 12px;
+      border-radius: 6px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 20%, rgba(255, 204, 0, 0.08), transparent 45%),
+        linear-gradient(180deg, #090b10 0%, #11141c 55%, #08090d 100%);
+      border: 1px solid #323130;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .caption-text {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      text-align: center;
+      font-family: "Montserrat", "Anton", Impact, sans-serif;
+      font-weight: 900;
+      font-size: 0.95rem;
+      line-height: 1.25;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .caption-word {
+      display: inline-block;
+      margin: 0 0.15em;
+      color: var(--caption-idle);
+      transition: color 0.08s linear, transform 0.08s linear;
+    }
+    .caption-word.spoken { color: var(--caption-spoken); }
+    .caption-word.active {
+      color: var(--caption-active);
+      transform: scale(1.04);
+      text-shadow: 0 0 12px rgba(255, 204, 0, 0.45);
+    }
+
+    .caption-placeholder {
+      color: rgba(255, 255, 255, 0.28);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      text-align: center;
+    }
+
+    audio { width: 100%; margin-bottom: 10px; }
+
+    .download-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 6px;
+    }
+
+    .download-row a,
+    .download-row button {
+      border: 1px solid var(--office-border);
+      border-radius: 2px;
+      background: var(--office-ribbon);
+      color: var(--office-text);
+      text-decoration: none;
+      text-align: center;
+      padding: 8px 6px;
+      font: inherit;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+
+    .download-row a:hover,
+    .download-row button:hover { background: var(--office-blue-light); }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 14px;
+      background: var(--office-blue);
+      color: #fff;
+      font-size: 0.78rem;
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 20px;
+    }
+
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      width: min(520px, 100%);
+      max-height: 80vh;
+      background: #fff;
+      border-radius: 4px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--office-border);
+      font-weight: 600;
+    }
+
+    .modal-close {
+      border: none;
+      background: transparent;
+      font-size: 1.2rem;
+      cursor: pointer;
+      color: var(--office-muted);
+    }
+
+    .modal-body {
+      padding: 8px 0;
+      overflow: auto;
+    }
+
+    .doc-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .doc-list-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid #f3f2f1;
+      cursor: pointer;
+    }
+
+    .doc-list-item:hover { background: var(--office-blue-light); }
+
+    .doc-list-item strong {
+      display: block;
+      font-size: 0.92rem;
+    }
+
+    .doc-list-item small {
+      color: var(--office-muted);
+      font-size: 0.78rem;
+    }
+
+    .doc-list-empty {
+      padding: 24px 16px;
+      color: var(--office-muted);
+      text-align: center;
+    }
+
+    .doc-delete {
+      border: none;
+      background: transparent;
+      color: var(--err);
+      cursor: pointer;
+      font-size: 0.78rem;
+      padding: 4px 8px;
+    }
+
+    @media (max-width: 980px) {
+      .workspace { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+      .speech-panel {
+        border-left: none;
+        border-top: 1px solid var(--office-border);
+        max-height: 42vh;
+      }
+      .page { padding: 48px 40px; min-height: 720px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="title-bar">
+      <div class="title-bar-left">
+        <div class="brand">
+          <div class="logo">K</div>
+          <span>Kokoro Document</span>
+        </div>
+        <div class="file-menu">
+          <button type="button" class="file-btn" id="file-new">New</button>
+          <button type="button" class="file-btn" id="file-save">Save</button>
+          <button type="button" class="file-btn" id="file-open">Open</button>
+        </div>
+      </div>
+      <div class="doc-title-wrap">
+        <span class="doc-dirty" id="doc-dirty" title="Unsaved changes">●</span>
+        <input type="text" class="doc-title-input" id="doc-title" value="Untitled script" aria-label="Document title">
+      </div>
+    </header>
+
+    <nav class="tab-row">
+      <button type="button" class="tab-btn active" data-tab="home">Home</button>
+      <button type="button" class="tab-btn" data-tab="insert">Insert</button>
+      <button type="button" class="tab-btn" data-tab="speech">Speech</button>
+    </nav>
+
+    <div class="ribbon-area">
+    <div class="ribbon ribbon-home active" id="ribbon-home">
+      <div class="ribbon-group">
+        <div class="ribbon-controls column">
+          <select class="font-select" id="font-name" title="Font">
+            <option value="Calibri">Calibri</option>
+            <option value="Arial">Arial</option>
+            <option value="Times New Roman">Times New Roman</option>
+            <option value="Georgia">Georgia</option>
+            <option value="Verdana">Verdana</option>
+            <option value="Courier New">Courier New</option>
+            <option value="Impact">Impact</option>
+            <option value="Montserrat">Montserrat</option>
+          </select>
+          <select class="size-select" id="font-size" title="Font size">
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="11" selected>11</option>
+            <option value="12">12</option>
+            <option value="14">14</option>
+            <option value="16">16</option>
+            <option value="18">18</option>
+            <option value="20">20</option>
+            <option value="24">24</option>
+            <option value="28">28</option>
+            <option value="36">36</option>
+            <option value="48">48</option>
+            <option value="72">72</option>
+          </select>
+        </div>
+        <div class="ribbon-group-label">Font</div>
+      </div>
+
+      <div class="ribbon-group">
+        <div class="ribbon-controls row">
+          <button type="button" class="tool-btn bold" data-cmd="bold" title="Bold (Ctrl+B)">B</button>
+          <button type="button" class="tool-btn italic" data-cmd="italic" title="Italic (Ctrl+I)">I</button>
+          <button type="button" class="tool-btn underline" data-cmd="underline" title="Underline (Ctrl+U)">U</button>
+          <button type="button" class="tool-btn" data-cmd="strikeThrough" title="Strikethrough">ab</button>
+          <button type="button" class="tool-btn" id="clear-format" title="Clear formatting">⌫</button>
+        </div>
+        <div class="ribbon-group-label">Font style</div>
+      </div>
+
+      <div class="ribbon-group">
+        <div class="ribbon-controls row">
+          <div class="swatches" id="highlight-swatches">
+            <button type="button" class="swatch" data-highlight="transparent" title="No highlight" style="background:#fff"></button>
+            <button type="button" class="swatch" data-highlight="#ffff00" style="background:#ffff00"></button>
+            <button type="button" class="swatch" data-highlight="#00ff00" style="background:#00ff00"></button>
+            <button type="button" class="swatch" data-highlight="#00ffff" style="background:#00ffff"></button>
+            <button type="button" class="swatch" data-highlight="#ff99cc" style="background:#ff99cc"></button>
+            <button type="button" class="swatch" data-highlight="#ffcc00" style="background:#ffcc00"></button>
+          </div>
+        </div>
+        <div class="ribbon-group-label">Highlight</div>
+      </div>
+
+      <div class="ribbon-group">
+        <div class="ribbon-controls row">
+          <div class="swatches" id="color-swatches">
+            <button type="button" class="swatch" data-color="#000000" style="background:#000"></button>
+            <button type="button" class="swatch" data-color="#c00000" style="background:#c00000"></button>
+            <button type="button" class="swatch" data-color="#185abd" style="background:#185abd"></button>
+            <button type="button" class="swatch" data-color="#107c10" style="background:#107c10"></button>
+            <button type="button" class="swatch" data-color="#7030a0" style="background:#7030a0"></button>
+            <button type="button" class="swatch" data-color="#ff6600" style="background:#ff6600"></button>
+          </div>
+          <label class="color-btn" title="Custom text color">
+            <input type="color" id="custom-text-color" value="#000000">
+            <span class="color-preview text-color">A</span>
+          </label>
+        </div>
+        <div class="ribbon-group-label">Font color</div>
+      </div>
+
+      <div class="ribbon-group">
+        <div class="ribbon-controls row">
+          <button type="button" class="tool-btn" data-cmd="justifyLeft" title="Align left">Left</button>
+          <button type="button" class="tool-btn" data-cmd="justifyCenter" title="Align center">Center</button>
+          <button type="button" class="tool-btn" data-cmd="justifyRight" title="Align right">Right</button>
+          <button type="button" class="tool-btn" data-cmd="justifyFull" title="Justify">Justify</button>
+        </div>
+        <div class="ribbon-group-label">Paragraph</div>
+      </div>
+
+      <div class="ribbon-group">
+        <div class="ribbon-controls row">
+          <button type="button" class="tool-btn" data-cmd="insertUnorderedList" title="Bullets">•</button>
+          <button type="button" class="tool-btn" data-cmd="insertOrderedList" title="Numbering">1.</button>
+          <button type="button" class="tool-btn" data-cmd="indent" title="Increase indent">→</button>
+          <button type="button" class="tool-btn" data-cmd="outdent" title="Decrease indent">←</button>
+        </div>
+        <div class="ribbon-group-label">Lists</div>
+      </div>
+    </div>
+
+    <div class="ribbon ribbon-insert" id="ribbon-insert">
+      <div class="ribbon-group">
+        <div class="ribbon-controls row">
+          <button type="button" class="tool-btn" id="insert-hr" title="Horizontal line">—</button>
+          <button type="button" class="tool-btn" id="insert-break" title="Page break spacing">↵</button>
+        </div>
+        <div class="ribbon-group-label">Insert</div>
+      </div>
+    </div>
+
+    <div class="ribbon ribbon-speech" id="ribbon-speech">
+      <div class="ribbon-group">
+        <div class="ribbon-controls column" style="min-width:220px">
+          <select id="voice-ribbon">
+            {% set current_group = namespace(value='') %}
+            {% for voice in voices %}
+              {% if voice.group != current_group.value %}
+                {% if current_group.value %}</optgroup>{% endif %}
+                <optgroup label="{{ voice.group }}">
+                {% set current_group.value = voice.group %}
+              {% endif %}
+              <option value="{{ voice.id }}"{% if voice.id == 'am_michael' %} selected{% endif %}>{{ voice.label }}</option>
+            {% endfor %}
+            </optgroup>
+          </select>
+          <div class="speed-row">
+            <input type="range" id="speed-ribbon" min="0.5" max="2" step="0.05" value="0.85">
+            <span id="speed-ribbon-value">0.85×</span>
+          </div>
+        </div>
+        <div class="ribbon-group-label">Narration</div>
+      </div>
+      <div class="ribbon-group">
+        <div class="ribbon-controls row">
+          <button type="button" class="primary-btn" id="generate-ribbon" style="width:auto;padding:8px 20px">Generate speech</button>
+        </div>
+        <div class="ribbon-group-label">Export</div>
+    </div>
+  </div>
+</div>
+
+<div class="workspace">
+      <main class="document-area">
+        <div class="page" id="editor" contenteditable="true" spellcheck="true">
+          <p>Power is not about shouting. It is about silence.</p>
+        </div>
+      </main>
+
+      <aside class="speech-panel">
+        <section class="panel-section">
+          <h2>Narration</h2>
+          <label for="voice">Voice</label>
+          <select id="voice">
+            {% set current_group = namespace(value='') %}
+            {% for voice in voices %}
+              {% if voice.group != current_group.value %}
+                {% if current_group.value %}</optgroup>{% endif %}
+                <optgroup label="{{ voice.group }}">
+                {% set current_group.value = voice.group %}
+              {% endif %}
+              <option value="{{ voice.id }}"{% if voice.id == 'am_michael' %} selected{% endif %}>{{ voice.label }} ({{ voice.id }})</option>
+            {% endfor %}
+            </optgroup>
+          </select>
+          <label for="speed">Speed <span id="speed-value">0.85×</span></label>
+          <div class="speed-row">
+            <input type="range" id="speed" min="0.5" max="2" step="0.05" value="0.85">
+          </div>
+          <button type="button" class="primary-btn" id="generate-btn">Generate speech</button>
+          <div class="status" id="status"></div>
+          
+          <div class="progress-container" id="progress-container" style="display: none;">
+            <div class="progress-bar-wrapper">
+              <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="progress-estimate" id="progress-estimate">Est. time remaining: 0.0s</div>
+          </div>
+        </section>
+
+        <section class="panel-section result" id="result">
+          <h2>Preview &amp; export</h2>
+          <div class="caption-stage" id="caption-stage">
+            <div class="caption-placeholder" id="caption-placeholder">Generate to preview</div>
+            <div class="caption-text" id="caption-text" hidden></div>
+          </div>
+          <audio id="player" controls></audio>
+          <div class="download-row">
+            <a id="download-link" href="#" download="kokoro.mp3">MP3</a>
+            <button type="button" id="download-srt">SRT</button>
+            <button type="button" id="download-webm">WebM</button>
+            <button type="button" id="download-mov">MOV</button>
+            <button type="button" id="download-mp4">MP4</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="status-bar">
+      <span id="word-count">0 words</span>
+      <span>Kokoro reads plain text from your document</span>
+    </footer>
+  </div>
+
+  <!-- Open Document Modal -->
+  <div class="modal-backdrop" id="open-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <span>Open Document</span>
+        <button type="button" class="modal-close" id="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="doc-list-empty" id="doc-list-empty" style="display: none;">No saved documents.</div>
+        <ul class="doc-list" id="doc-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Context Menu for Selection Reading -->
+  <div class="context-menu" id="context-menu">
+    <div class="context-menu-item" id="context-read-selection">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 5v14l11-7z"/>
+      </svg>
+      Read selection
+    </div>
+  </div>
+
+  <script>
+    // Global error handlers to display any JS errors directly on-screen
+    window.onerror = function(message, source, lineno, colno, error) {
+      const statusEl = document.getElementById('status');
+      if (statusEl) {
+        statusEl.textContent = `JS Error: ${message} (Line ${lineno}:${colno})`;
+        statusEl.className = 'status error';
+      }
+      return false;
+    };
+    window.onunhandledrejection = function(event) {
+      const statusEl = document.getElementById('status');
+      if (statusEl) {
+        statusEl.textContent = `Promise Error: ${event.reason?.message || event.reason}`;
+        statusEl.className = 'status error';
+      }
+    };
+
+    const editor = document.getElementById('editor');
+    const voiceEl = document.getElementById('voice');
+    const voiceRibbonEl = document.getElementById('voice-ribbon');
+    const speedEl = document.getElementById('speed');
+    const speedRibbonEl = document.getElementById('speed-ribbon');
+    const speedValueEl = document.getElementById('speed-value');
+    const speedRibbonValueEl = document.getElementById('speed-ribbon-value');
+    const generateBtn = document.getElementById('generate-btn');
+    const generateRibbonBtn = document.getElementById('generate-ribbon');
+    const statusEl = document.getElementById('status');
+    const resultEl = document.getElementById('result');
+    const playerEl = document.getElementById('player');
+    const downloadLinkEl = document.getElementById('download-link');
+    const downloadSrtBtn = document.getElementById('download-srt');
+    const downloadWebmBtn = document.getElementById('download-webm');
+    const downloadMovBtn = document.getElementById('download-mov');
+    const downloadMp4Btn = document.getElementById('download-mp4');
+    const captionPlaceholderEl = document.getElementById('caption-placeholder');
+    const captionTextEl = document.getElementById('caption-text');
+    const wordCountEl = document.getElementById('word-count');
+    const fontNameEl = document.getElementById('font-name');
+    const fontSizeEl = document.getElementById('font-size');
+
+    const WORDS_PER_PHRASE = 4;
+    let audioUrl = null;
+    let mp4Url = null;
+    let webmUrl = null;
+    let movUrl = null;
+    let srtText = '';
+    let srtFilename = 'kokoro.srt';
+    let words = [];
+    let phrases = [];
+    let captionNodes = [];
+    let rafId = null;
+
+    function getSafeDocumentTitle() {
+      const rawTitle = docTitleInput.value.trim();
+      if (!rawTitle) return 'Untitled script';
+      return rawTitle.replace(/[\\/:*?"<>|]/g, '_');
+    }
+
+    function getPlainText() {
+      return editor.innerText.replace(/\u00a0/g, ' ').trim();
+    }
+
+    function getVoice() {
+      return voiceEl.value;
+    }
+
+    function getSpeed() {
+      return Number(speedEl.value);
+    }
+
+    function syncVoice(from, to) {
+      to.value = from.value;
+    }
+
+    voiceEl.addEventListener('change', () => syncVoice(voiceEl, voiceRibbonEl));
+    voiceRibbonEl.addEventListener('change', () => syncVoice(voiceRibbonEl, voiceEl));
+
+    function syncSpeed(from, to, label) {
+      to.value = from.value;
+      label.textContent = `${Number(from.value).toFixed(2)}×`;
+    }
+
+    speedEl.addEventListener('input', () => {
+      syncSpeed(speedEl, speedRibbonEl, speedValueEl);
+      speedRibbonValueEl.textContent = speedValueEl.textContent;
+      updateWordCount();
+    });
+    speedRibbonEl.addEventListener('input', () => {
+      syncSpeed(speedRibbonEl, speedEl, speedRibbonValueEl);
+      speedValueEl.textContent = speedRibbonValueEl.textContent;
+      updateWordCount();
+    });
+
+    function updateWordCount() {
+      const text = getPlainText();
+      const count = text ? text.split(/\s+/).filter(Boolean).length : 0;
+      const speed = getSpeed();
+      const wpm = 140; // average Kokoro narration speed (WPM)
+      const estSeconds = count > 0 ? (count * 60) / (wpm * speed) : 0;
+
+      let durationText = '';
+      if (estSeconds > 0) {
+        if (estSeconds < 60) {
+          durationText = ` · Est. duration: ~${estSeconds.toFixed(1)}s`;
+        } else {
+          const mins = Math.floor(estSeconds / 60);
+          const secs = Math.round(estSeconds % 60);
+          durationText = ` · Est. duration: ~${mins}m ${secs}s`;
+        }
+      }
+      wordCountEl.textContent = `${count} word${count === 1 ? '' : 's'}${durationText}`;
+    }
+
+    function focusEditor() {
+      editor.focus();
+    }
+
+    function exec(cmd, value = null) {
+      focusEditor();
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand(cmd, false, value);
+      updateToolbarState();
+      updateWordCount();
+    }
+
+    function applyFontSize(pt) {
+      focusEditor();
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return;
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand('fontSize', false, '7');
+      editor.querySelectorAll('font[size="7"]').forEach((node) => {
+        const span = document.createElement('span');
+        span.style.fontSize = `${pt}pt`;
+        span.innerHTML = node.innerHTML;
+        node.replaceWith(span);
+      });
+      updateToolbarState();
+    }
+
+    function applyFontName(name) {
+      exec('fontName', name);
+    }
+
+    function updateToolbarState() {
+      ['bold', 'italic', 'underline', 'strikeThrough'].forEach((cmd) => {
+        const btn = document.querySelector(`[data-cmd="${cmd}"]`);
+        if (btn) btn.classList.toggle('active', document.queryCommandState(cmd));
+      });
+      ['justifyLeft', 'justifyCenter', 'justifyRight', 'justifyFull'].forEach((cmd) => {
+        const btn = document.querySelector(`[data-cmd="${cmd}"]`);
+        if (btn) btn.classList.toggle('active', document.queryCommandState(cmd));
+      });
+    }
+
+    document.querySelectorAll('.tab-btn').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach((t) => t.classList.remove('active'));
+        document.querySelectorAll('.ribbon').forEach((r) => r.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`ribbon-${tab.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    document.querySelectorAll('[data-cmd]').forEach((btn) => {
+      btn.addEventListener('click', () => exec(btn.dataset.cmd));
+    });
+
+    fontNameEl.addEventListener('change', () => applyFontName(fontNameEl.value));
+    fontSizeEl.addEventListener('change', () => applyFontSize(fontSizeEl.value));
+
+    document.getElementById('clear-format').addEventListener('click', () => exec('removeFormat'));
+
+    document.querySelectorAll('[data-highlight]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const color = btn.dataset.highlight;
+        if (color === 'transparent') exec('backColor', 'transparent');
+        else exec('backColor', color);
+      });
+    });
+
+    document.querySelectorAll('[data-color]').forEach((btn) => {
+      btn.addEventListener('click', () => exec('foreColor', btn.dataset.color));
+    });
+
+    document.getElementById('custom-text-color').addEventListener('input', (event) => {
+      exec('foreColor', event.target.value);
+    });
+
+    document.getElementById('insert-hr').addEventListener('click', () => {
+      exec('insertHorizontalRule');
+    });
+
+    document.getElementById('insert-break').addEventListener('click', () => {
+      exec('insertHTML', '<p><br></p>');
+    });
+
+    editor.addEventListener('input', updateWordCount);
+    editor.addEventListener('keyup', updateToolbarState);
+    editor.addEventListener('mouseup', updateToolbarState);
+    document.addEventListener('selectionchange', () => {
+      if (document.activeElement === editor) updateToolbarState();
+    });
+
+    editor.addEventListener('keydown', (event) => {
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key === 'b') { event.preventDefault(); exec('bold'); }
+        if (event.key === 'i') { event.preventDefault(); exec('italic'); }
+        if (event.key === 'u') { event.preventDefault(); exec('underline'); }
+      }
+    });
+
+    function setStatus(message, kind = '') {
+      statusEl.textContent = message;
+      statusEl.className = 'status' + (kind ? ` ${kind}` : '');
+    }
+
+    function cleanupAudioUrl() {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+        audioUrl = null;
+      }
+      if (mp4Url) {
+        URL.revokeObjectURL(mp4Url);
+        mp4Url = null;
+      }
+      if (webmUrl) {
+        URL.revokeObjectURL(webmUrl);
+        webmUrl = null;
+      }
+      if (movUrl) {
+        URL.revokeObjectURL(movUrl);
+        movUrl = null;
+      }
+    }
+
+    function base64ToBlob(base64, mime) {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+      return new Blob([bytes], { type: mime });
+    }
+
+    function buildPhrases(allWords, maxWords = WORDS_PER_PHRASE) {
+      const groups = [];
+      let current = [];
+      for (const word of allWords) {
+        current.push(word);
+        const endsSentence = /[.!?…]$/.test(word.text);
+        if (current.length >= maxWords || endsSentence) {
+          groups.push(current);
+          current = [];
+        }
+      }
+      if (current.length) groups.push(current);
+      return groups;
+    }
+
+    function findPhraseIndex(time) {
+      for (let i = 0; i < phrases.length; i += 1) {
+        const phrase = phrases[i];
+        if (time >= phrase[0].start && time <= phrase[phrase.length - 1].end + 0.05) return i;
+      }
+      for (let i = phrases.length - 1; i >= 0; i -= 1) {
+        if (time >= phrases[i][0].start) return i;
+      }
+      return 0;
+    }
+
+    function renderPhrase(phraseIndex) {
+      const phrase = phrases[phraseIndex] || [];
+      captionTextEl.innerHTML = '';
+      captionNodes = phrase.map((word) => {
+        const span = document.createElement('span');
+        span.className = 'caption-word';
+        span.textContent = word.text.toUpperCase();
+        span.dataset.start = String(word.start);
+        span.dataset.end = String(word.end);
+        captionTextEl.appendChild(span);
+        return span;
+      });
+    }
+
+    function updateCaption(time) {
+      if (!captionNodes.length) return;
+      const phraseIndex = findPhraseIndex(time);
+      const expectedStart = phrases[phraseIndex]?.[0]?.start;
+      const currentStart = Number(captionNodes[0]?.dataset.start || -1);
+      if (expectedStart !== currentStart) renderPhrase(phraseIndex);
+      for (const node of captionNodes) {
+        const start = Number(node.dataset.start);
+        const end = Number(node.dataset.end);
+        node.classList.remove('active', 'spoken');
+        if (time >= end) node.classList.add('spoken');
+        else if (time >= start) node.classList.add('active');
+      }
+    }
+
+    function stopCaptionLoop() {
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    }
+
+    function startCaptionLoop() {
+      stopCaptionLoop();
+      const tick = () => {
+        updateCaption(playerEl.currentTime || 0);
+        if (!playerEl.paused && !playerEl.ended) rafId = requestAnimationFrame(tick);
+        else rafId = null;
+      };
+      rafId = requestAnimationFrame(tick);
+    }
+
+    function resetCaptionPreview() {
+      stopCaptionLoop();
+      words = [];
+      phrases = [];
+      captionNodes = [];
+      captionTextEl.hidden = true;
+      captionTextEl.innerHTML = '';
+      captionPlaceholderEl.hidden = false;
+    }
+
+    function showCaptionPreview(payloadWords) {
+      words = payloadWords;
+      phrases = buildPhrases(words);
+      captionPlaceholderEl.hidden = true;
+      captionTextEl.hidden = false;
+      renderPhrase(0);
+      updateCaption(0);
+    }
+
+    playerEl.addEventListener('play', startCaptionLoop);
+    playerEl.addEventListener('seeked', () => updateCaption(playerEl.currentTime || 0));
+    playerEl.addEventListener('timeupdate', () => {
+      if (rafId === null) updateCaption(playerEl.currentTime || 0);
+    });
+    playerEl.addEventListener('pause', stopCaptionLoop);
+    playerEl.addEventListener('ended', () => {
+      stopCaptionLoop();
+      updateCaption(playerEl.duration || 0);
+    });
+
+    function downloadBlobFile(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    downloadSrtBtn.addEventListener('click', () => {
+      if (!srtText) {
+        setStatus('Generate speech first to create SRT.', 'error');
+        return;
+      }
+      const blob = new Blob([srtText], { type: 'text/plain;charset=utf-8' });
+      downloadBlobFile(blob, srtFilename);
+    });
+
+    downloadLinkEl.addEventListener('click', (event) => {
+      if (!audioUrl) {
+        event.preventDefault();
+        setStatus('Generate speech first to create MP3.', 'error');
+      }
+    });
+
+    async function downloadVideo(format) {
+      const text = getPlainText();
+      const voice = getVoice();
+      const speed = getSpeed();
+      const title = getSafeDocumentTitle();
+      if (!text) {
+        setStatus('Please write something in the document.', 'error');
+        return;
+      }
+
+      downloadWebmBtn.disabled = true;
+      downloadMovBtn.disabled = true;
+      downloadMp4Btn.disabled = true;
+      setStatus(`Rendering ${format.toUpperCase()}…`, 'loading');
+
+      let audioDuration = playerEl.duration;
+      if (!audioDuration || Number.isNaN(audioDuration) || !Number.isFinite(audioDuration)) {
+        const wordCount = text.split(/\s+/).filter(Boolean).length;
+        audioDuration = (wordCount * 0.45) / speed;
+      }
+      const totalEstSeconds = format === 'mp4'
+        ? (0.8 + audioDuration * 0.18)
+        : (1.5 + audioDuration * 0.28);
+
+      const progressContainer = document.getElementById('progress-container');
+      const progressBar = document.getElementById('progress-bar');
+      const progressEstimate = document.getElementById('progress-estimate');
+
+      progressBar.style.width = '0%';
+      progressEstimate.textContent = `Est. time remaining: ${totalEstSeconds.toFixed(1)}s`;
+      progressContainer.style.display = 'flex';
+      progressContainer.style.opacity = '1';
+
+      const startTime = Date.now();
+      const progressInterval = setInterval(() => {
+        const elapsed = (Date.now() - startTime) / 1000;
+        const remaining = Math.max(0, totalEstSeconds - elapsed);
+        const pct = Math.min((elapsed / totalEstSeconds) * 100, 95);
+        progressBar.style.width = `${pct.toFixed(1)}%`;
+        progressEstimate.textContent = `Est. time remaining: ${remaining.toFixed(1)}s`;
+      }, 100);
+
+      try {
+        const response = await fetch('/api/generate/video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice, speed, format, title }),
+        });
+
+        if (!response.ok) {
+          let message = `${format.toUpperCase()} export failed.`;
+          try {
+            const payload = await response.json();
+            message = payload.error || message;
+          } catch (_) {}
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const ext = format === 'mov' ? 'mov' : (format === 'webm' ? 'webm' : 'mp4');
+        downloadBlobFile(blob, `${title}.${ext}`);
+
+        clearInterval(progressInterval);
+        progressBar.style.width = '100%';
+        progressEstimate.textContent = 'Download started!';
+        setStatus(`${format.toUpperCase()} downloaded.`, 'ok');
+      } catch (error) {
+        clearInterval(progressInterval);
+        progressBar.style.width = '0%';
+        setStatus(error.message || `${format.toUpperCase()} export failed.`, 'error');
+      } finally {
+        downloadWebmBtn.disabled = false;
+        downloadMovBtn.disabled = false;
+        downloadMp4Btn.disabled = false;
+        setTimeout(() => {
+          progressContainer.style.opacity = '0';
+          setTimeout(() => {
+            if (progressContainer.style.opacity === '0') {
+              progressContainer.style.display = 'none';
+            }
+          }, 300);
+        }, 1200);
+      }
+    }
+
+    downloadWebmBtn.addEventListener('click', () => downloadVideo('webm'));
+    downloadMovBtn.addEventListener('click', () => downloadVideo('mov'));
+    downloadMp4Btn.addEventListener('click', () => downloadVideo('mp4'));
+
+    async function generateSpeech() {
+      cleanupAudioUrl();
+      resetCaptionPreview();
+      resultEl.classList.remove('visible');
+
+      const text = getPlainText();
+      const voice = getVoice();
+      const speed = getSpeed();
+
+      if (!text) {
+        setStatus('Please write something in the document.', 'error');
+        return;
+      }
+
+      generateBtn.disabled = true;
+      generateRibbonBtn.disabled = true;
+      setStatus('Generating speech…', 'loading');
+
+      try {
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, voice, speed }),
+        });
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+          setStatus(payload.error || 'Generation failed.', 'error');
+          return;
+        }
+
+        const blob = base64ToBlob(payload.audio_base64, payload.audio_mime || 'audio/mpeg');
+        audioUrl = URL.createObjectURL(blob);
+        playerEl.src = audioUrl;
+        downloadLinkEl.href = audioUrl;
+        downloadLinkEl.download = `${getSafeDocumentTitle()}.mp3`;
+        
+        srtText = payload.srt || '';
+        srtFilename = `${getSafeDocumentTitle()}.srt`;
+        
+        showCaptionPreview(payload.words || []);
+        resultEl.classList.add('visible');
+        playerEl.play().catch(() => {});
+        setStatus(`Ready — ${payload.words?.length || 0} words, ${payload.duration?.toFixed(1)}s`, 'ok');
+      } catch (error) {
+        setStatus(`Network error: ${error.message}`, 'error');
+      } finally {
+        generateBtn.disabled = false;
+        generateRibbonBtn.disabled = false;
+      }
+    }
+
+    generateBtn.addEventListener('click', generateSpeech);
+    generateRibbonBtn.addEventListener('click', generateSpeech);
+
+    // Document Store Management
+    const fileNewBtn = document.getElementById('file-new');
+    const fileSaveBtn = document.getElementById('file-save');
+    const fileOpenBtn = document.getElementById('file-open');
+    const docTitleInput = document.getElementById('doc-title');
+    const docDirtySpan = document.getElementById('doc-dirty');
+    const openModal = document.getElementById('open-modal');
+    const modalCloseBtn = document.getElementById('modal-close');
+    const docListUl = document.getElementById('doc-list');
+    const docListEmptyDiv = document.getElementById('doc-list-empty');
+
+    let currentDocId = null;
+    let isDirty = false;
+
+    function setDirty(dirty) {
+      isDirty = dirty;
+      docDirtySpan.classList.toggle('visible', dirty);
+    }
+
+    // Trigger dirty state on content/title edits
+    editor.addEventListener('input', () => setDirty(true));
+    docTitleInput.addEventListener('input', () => setDirty(true));
+
+    // New Document
+    fileNewBtn.addEventListener('click', () => {
+      if (isDirty && !confirm('You have unsaved changes. Are you sure you want to create a new document?')) {
+        return;
+      }
+      currentDocId = null;
+      docTitleInput.value = 'Untitled script';
+      editor.innerHTML = '<p><br></p>';
+      resetCaptionPreview();
+      cleanupAudioUrl();
+      resultEl.classList.remove('visible');
+      setStatus('');
+      setDirty(false);
+      editor.focus();
+      updateWordCount();
+    });
+
+    // Save Document
+    fileSaveBtn.addEventListener('click', async () => {
+      const title = docTitleInput.value.trim();
+      const html = editor.innerHTML;
+      if (!title) {
+        setStatus('Please enter a document title.', 'error');
+        return;
+      }
+      setStatus('Saving document…', 'loading');
+      try {
+        const response = await fetch('/api/documents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: currentDocId, title, html }),
+        });
+        const data = await response.json();
+        if (response.ok && data.ok) {
+          currentDocId = data.id;
+          docTitleInput.value = data.title;
+          setDirty(false);
+          setStatus('Document saved.', 'ok');
+          loadDocumentList();
+        } else {
+          setStatus(data.error || 'Failed to save document.', 'error');
+        }
+      } catch (error) {
+        setStatus(`Save error: ${error.message}`, 'error');
+      }
+    });
+
+    // Open Modal
+    fileOpenBtn.addEventListener('click', () => {
+      if (isDirty && !confirm('You have unsaved changes. Are you sure you want to open another document?')) {
+        return;
+      }
+      openModal.classList.add('open');
+      loadDocumentList();
+    });
+
+    // Close Modal
+    modalCloseBtn.addEventListener('click', () => {
+      openModal.classList.remove('open');
+    });
+    openModal.addEventListener('click', (e) => {
+      if (e.target === openModal) openModal.classList.remove('open');
+    });
+
+    // Fetch and display saved documents
+    async function loadDocumentList() {
+      docListUl.innerHTML = '';
+      docListEmptyDiv.style.display = 'none';
+      try {
+        const response = await fetch('/api/documents');
+        const data = await response.json();
+        if (response.ok && data.ok) {
+          const docs = data.documents || [];
+          if (docs.length === 0) {
+            docListEmptyDiv.style.display = 'block';
+            return;
+          }
+          docs.forEach((doc) => {
+            const li = document.createElement('li');
+            li.className = 'doc-list-item';
+            
+            const meta = document.createElement('div');
+            meta.style.flex = '1';
+            meta.style.cursor = 'pointer';
+            
+            const title = document.createElement('strong');
+            title.textContent = doc.title;
+            
+            const updated = document.createElement('small');
+            const dateStr = new Date(doc.updated_at).toLocaleString();
+            updated.textContent = `Updated: ${dateStr}`;
+            
+            meta.appendChild(title);
+            meta.appendChild(updated);
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'doc-delete';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              if (confirm(`Delete "${doc.title}"?`)) {
+                try {
+                  const delRes = await fetch(`/api/documents/${doc.id}`, { method: 'DELETE' });
+                  if (delRes.ok) {
+                    loadDocumentList();
+                  }
+                } catch (err) {
+                  alert(`Delete failed: ${err.message}`);
+                }
+              }
+            });
+            
+            li.appendChild(meta);
+            li.appendChild(deleteBtn);
+            
+            meta.addEventListener('click', async () => {
+              openModal.classList.remove('open');
+              setStatus('Loading document…', 'loading');
+              try {
+                const docRes = await fetch(`/api/documents/${doc.id}`);
+                const docData = await docRes.json();
+                if (docRes.ok && docData.ok) {
+                  currentDocId = docData.id;
+                  docTitleInput.value = docData.title;
+                  editor.innerHTML = docData.html;
+                  setDirty(false);
+                  setStatus(`Loaded "${docData.title}"`, 'ok');
+                  resetCaptionPreview();
+                  cleanupAudioUrl();
+                  resultEl.classList.remove('visible');
+                  updateWordCount();
+                } else {
+                  setStatus(docData.error || 'Failed to load document.', 'error');
+                }
+              } catch (err) {
+                setStatus(`Load error: ${err.message}`, 'error');
+              }
+            });
+            
+            docListUl.appendChild(li);
+          });
+        }
+      } catch (error) {
+        docListEmptyDiv.style.display = 'block';
+        docListEmptyDiv.textContent = 'Error loading documents.';
+      }
+    }
+
+    // Selection Reading Context Menu
+    const contextMenu = document.getElementById('context-menu');
+    const contextReadSelection = document.getElementById('context-read-selection');
+    let lastSelectedText = "";
+
+    editor.addEventListener('contextmenu', (e) => {
+      const selectedText = window.getSelection().toString().trim();
+      if (selectedText) {
+        lastSelectedText = selectedText;
+        e.preventDefault();
+        contextMenu.style.display = 'block';
+        contextMenu.style.left = `${e.clientX}px`;
+        contextMenu.style.top = `${e.clientY}px`;
+      } else {
+        contextMenu.style.display = 'none';
+      }
+    });
+
+    // Stop click events inside the menu from propagation
+    contextMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    document.addEventListener('click', () => {
+      contextMenu.style.display = 'none';
+    });
+
+    document.addEventListener('scroll', () => {
+      contextMenu.style.display = 'none';
+    }, true);
+
+    contextReadSelection.addEventListener('click', async () => {
+      const selectedText = lastSelectedText;
+      contextMenu.style.display = 'none';
+      if (!selectedText) return;
+      
+      setStatus('Reading selection…', 'loading');
+      try {
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: selectedText,
+            voice: getVoice(),
+            speed: getSpeed()
+          }),
+        });
+        const payload = await response.json();
+        if (response.ok && payload.ok) {
+          const blob = base64ToBlob(payload.audio_base64, payload.audio_mime || 'audio/mpeg');
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audio.play().catch(err => {
+            setStatus(`Playback blocked or failed: ${err.message}`, 'error');
+          });
+          audio.onended = () => {
+            URL.revokeObjectURL(url);
+          };
+          setStatus('Playing selection.', 'ok');
+        } else {
+          setStatus(payload.error || 'Failed to read selection.', 'error');
+        }
+      } catch (err) {
+        setStatus(`Network error: ${err.message}`, 'error');
+      }
+    });
+
+    editor.focus();
+    updateWordCount();
+    updateToolbarState();
+  </script>
+</body>
+</html>

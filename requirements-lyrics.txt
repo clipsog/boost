@@ -1,0 +1,7 @@
+-r requirements.txt
+faster-whisper>=1.0.0
+flask>=3.0.0
+python-dotenv>=1.0.0
+pillow>=10.0.0
+numpy>=2.0.0
+soundfile>=0.14.0
