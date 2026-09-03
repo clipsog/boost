@@ -311,6 +311,14 @@
       padding: 8px 12px;
       font-size: 0.85rem;
     }
+    .queue-actions button.boost-all {
+      background: var(--ok);
+      border: none;
+      color: #0f1117;
+    }
+    .queue-actions button.boost-all:hover:not(:disabled) {
+      filter: brightness(1.08);
+    }
     .queue-group-title {
       font-size: 0.78rem;
       text-transform: uppercase;
@@ -426,6 +434,7 @@
       <div class="queue-header">
         <h2>Approval queue</h2>
         <div class="queue-actions">
+          <button type="button" class="boost-all hidden" id="boostAllReadyBtn">Boost all ready</button>
           <button type="button" class="secondary" id="refreshQueueBtn">Refresh</button>
         </div>
       </div>
@@ -1059,7 +1068,10 @@
     const queueEmpty = document.getElementById("queueEmpty");
     const queueError = document.getElementById("queueError");
     const refreshQueueBtn = document.getElementById("refreshQueueBtn");
+    const boostAllReadyBtn = document.getElementById("boostAllReadyBtn");
     let queueRefreshTimer = null;
+    let boostAllRunning = false;
+    let lastReadyItems = [];
 
     function formatPostedAt(iso) {
       if (!iso) return "";
@@ -1119,8 +1131,17 @@
 
       const ready = data.ready || [];
       const waiting = data.waiting || [];
+      lastReadyItems = ready;
+      const historyTotal = data.history?.full_boosted;
+      const historyNote = historyTotal != null ? ` · ${formatCount(historyTotal)} in history` : "";
       queueStatus.textContent =
-        `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted`;
+        `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted${historyNote}`;
+
+      boostAllReadyBtn.classList.toggle("hidden", ready.length === 0);
+      boostAllReadyBtn.disabled = boostAllRunning || ready.length === 0;
+      boostAllReadyBtn.textContent = ready.length
+        ? `Boost all ready (${ready.length})`
+        : "Boost all ready";
 
       queueReadyList.innerHTML = ready.map((item) => renderQueueItem(item, { approvable: true })).join("");
       queueWaitingList.innerHTML = waiting.map((item) => renderQueueItem(item, { approvable: false })).join("");
@@ -1135,6 +1156,7 @@
     }
 
     async function loadQueue(forceRefresh = false) {
+      if (boostAllRunning) return;
       refreshQueueBtn.disabled = true;
       queueStatus.textContent = forceRefresh ? "Refreshing queue…" : "Loading queue…";
       try {
@@ -1180,6 +1202,71 @@
       }
     }
 
+    async function boostAllReady() {
+      const items = [...lastReadyItems];
+      if (!items.length || boostAllRunning) return;
+      const label = items.length === 1 ? "1 video" : `${items.length} videos`;
+      if (!confirm(`Send full boost pack to ${label}? Orders run one at a time.`)) return;
+
+      boostAllRunning = true;
+      boostAllReadyBtn.disabled = true;
+      refreshQueueBtn.disabled = true;
+      queueReadyList.querySelectorAll(".queue-approve").forEach((btn) => {
+        btn.disabled = true;
+      });
+
+      let ok = 0;
+      let failed = 0;
+      const failures = [];
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const title = item.title || item.video_id || "video";
+        queueStatus.textContent = `Boosting ${i + 1}/${items.length}: ${title}…`;
+        boostAllReadyBtn.textContent = `Boosting ${i + 1}/${items.length}…`;
+
+        try {
+          const res = await fetch("/api/boost", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: item.url, mode: "full", from_queue: true }),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            ok += 1;
+            if (data.balance && balanceLine) {
+              balanceLine.innerHTML =
+                `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
+            }
+          } else {
+            failed += 1;
+            failures.push(data.error || title);
+          }
+        } catch (err) {
+          failed += 1;
+          failures.push(`${title}: ${err.message}`);
+        }
+
+        if (i < items.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+        }
+      }
+
+      boostAllRunning = false;
+      boostAllReadyBtn.textContent = "Boost all ready";
+      refreshQueueBtn.disabled = false;
+
+      if (failed) {
+        queueStatus.textContent = `Done: ${ok} boosted, ${failed} failed.`;
+        alert(`Boost all finished with errors:\n\n${failures.slice(0, 5).join("\n")}${failures.length > 5 ? "\n…" : ""}`);
+      } else {
+        queueStatus.textContent = `Done: ${ok} video${ok === 1 ? "" : "s"} boosted.`;
+      }
+
+      await loadQueue(true);
+    }
+
+    boostAllReadyBtn.addEventListener("click", boostAllReady);
     refreshQueueBtn.addEventListener("click", () => loadQueue(true));
     loadQueue(false);
     queueRefreshTimer = setInterval(() => loadQueue(false), 60000);

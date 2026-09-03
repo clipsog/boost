@@ -35,6 +35,7 @@ Automatically loads videos from **@the.clips.og** posted in the last **24 hours*
 - Videos younger than **1 hour** appear as *Waiting*
 - After 1 hour, they move to *Ready for approval*
 - Nothing is boosted until you click **Approve boost** (full pack)
+- **Boost all ready** runs full packs one video at a time for every ready item
 
 ### Manual boost
 
@@ -74,6 +75,19 @@ ZEFAME_QUEUE_PROFILE=the.clips.og
 ZEFAME_QUEUE_LOOKBACK_HOURS=24
 ZEFAME_QUEUE_MIN_AGE_HOURS=1
 ```
+
+### Boost history on Render
+
+Production starts with an empty history unless you ship one. This repo includes `data/boost_history_seed.json` (copied from your local boosts). On first boot, if no runtime file exists yet, that seed is loaded automatically.
+
+To sync newer local history after deploy:
+
+```bash
+export BOOST_ADMIN_SECRET=your-secret   # same value as on Render
+python scripts/push_history.py --url https://your-app.onrender.com
+```
+
+Set `BOOST_ADMIN_SECRET` on Render (see `render.yaml`) so the import endpoint accepts updates.
 
 ## CLI
 

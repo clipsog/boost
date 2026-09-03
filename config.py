@@ -1,4 +1,7 @@
 import os
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent
 
 VIEWS_SERVICE_ID = int(os.getenv("ZEFAME_VIEWS_SERVICE", "953"))
 VIEWS_QUANTITY = int(os.getenv("ZEFAME_VIEWS_QUANTITY", "542"))
@@ -18,3 +21,17 @@ LIKES_MIN = int(os.getenv("ZEFAME_LIKES_MIN", "10"))
 QUEUE_PROFILE = os.getenv("ZEFAME_QUEUE_PROFILE", "the.clips.og").strip().lstrip("@")
 QUEUE_LOOKBACK_HOURS = int(os.getenv("ZEFAME_QUEUE_LOOKBACK_HOURS", "24"))
 QUEUE_MIN_AGE_HOURS = int(os.getenv("ZEFAME_QUEUE_MIN_AGE_HOURS", "1"))
+
+_boost_history_raw = os.getenv("BOOST_HISTORY_PATH", "").strip()
+BOOST_HISTORY_PATH = (
+    Path(_boost_history_raw).expanduser()
+    if _boost_history_raw
+    else _PROJECT_ROOT / "boosted_videos.json"
+)
+_seed_raw = os.getenv("BOOST_HISTORY_SEED_PATH", "").strip()
+BOOST_HISTORY_SEED_PATH = (
+    Path(_seed_raw).expanduser()
+    if _seed_raw
+    else _PROJECT_ROOT / "data" / "boost_history_seed.json"
+)
+BOOST_ADMIN_SECRET = os.getenv("BOOST_ADMIN_SECRET", "").strip()

@@ -9,9 +9,10 @@ from pathlib import Path
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-from boost_history import get_boost, is_full_boosted, record_boost
+from boost_history import ensure_history_loaded, get_boost, history_stats, is_full_boosted, merge_history, record_boost
 from boost_queue import build_queue, invalidate_cache, queue_item_for_video
 from config import (
+    BOOST_ADMIN_SECRET,
     FULL_LIKES_MAX,
     FULL_LIKES_MIN,
     FULL_VIEWS_HIGH,
@@ -38,6 +39,14 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 app = Flask(__name__)
 client = ZefameClient()
+
+_seed_result = ensure_history_loaded()
+if _seed_result:
+    print(
+        f"Loaded boost history seed: { _seed_result['added'] } added, "
+        f"{ _seed_result['total'] } total",
+        flush=True,
+    )
 
 BOOST_MODE_FULL = "full"
 BOOST_MODE_LOWER = "lower"
@@ -255,8 +264,36 @@ def index():
 def queue():
     force_refresh = request.args.get("refresh") == "1"
     payload = build_queue(force_refresh=force_refresh)
+    if payload.get("ok"):
+        payload["history"] = history_stats()
     status = 200 if payload.get("ok") else 502
     return jsonify(payload), status
+
+
+@app.get("/api/history/stats")
+def history_stats_route():
+    return jsonify({"ok": True, **history_stats()})
+
+
+@app.post("/api/history/import")
+def history_import():
+    if not BOOST_ADMIN_SECRET:
+        return jsonify({"ok": False, "error": "History import is not configured."}), 503
+
+    body = request.get_json(silent=True) or {}
+    provided = request.headers.get("X-Admin-Secret") or body.get("secret")
+    if provided != BOOST_ADMIN_SECRET:
+        return jsonify({"ok": False, "error": "Unauthorized."}), 401
+
+    incoming = body.get("entries")
+    if incoming is None and body and "secret" not in body:
+        incoming = body
+    if not isinstance(incoming, dict) or not incoming:
+        return jsonify({"ok": False, "error": "Expected a JSON object of video entries."}), 400
+
+    result = merge_history(incoming)
+    invalidate_cache()
+    return jsonify({"ok": True, **result, "history": history_stats()})
 
 
 @app.post("/api/preview")

@@ -10,5 +10,7 @@ services:
         sync: false
       - key: FLASK_DEBUG
         value: "0"
+      - key: BOOST_ADMIN_SECRET
+        sync: false
       - key: PYTHON_VERSION
         value: "3.10.13"
