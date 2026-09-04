@@ -1098,7 +1098,7 @@
         ? `<span class="queue-badge ready">Ready</span>`
         : `<span class="queue-badge waiting">Ready in ${formatWait(item.seconds_until_ready || 0)}</span>`;
       const action = approvable
-        ? `<button type="button" class="queue-approve" data-queue-url="${item.url}">Approve boost</button>`
+        ? `<button type="button" class="queue-approve" data-queue-url="${item.url}" data-queue-video-id="${item.video_id}" data-queue-likes="${item.likes}" data-queue-views="${item.views}" data-queue-title="${(item.title || "").replace(/"/g, "&quot;")}">Approve boost</button>`
         : "";
       return `
         <div class="queue-item">
@@ -1181,7 +1181,15 @@
         const res = await fetch("/api/boost", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, mode: "full", from_queue: true }),
+          body: JSON.stringify({
+            url,
+            mode: "full",
+            from_queue: true,
+            video_id: button.dataset.queueVideoId,
+            likes: Number(button.dataset.queueLikes || 0),
+            views: Number(button.dataset.queueViews || 0),
+            title: button.dataset.queueTitle || "",
+          }),
         });
         const data = await res.json();
         if (data.ok) {
@@ -1229,7 +1237,15 @@
           const res = await fetch("/api/boost", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: item.url, mode: "full", from_queue: true }),
+            body: JSON.stringify({
+            url: item.url,
+            mode: "full",
+            from_queue: true,
+            video_id: item.video_id,
+            likes: item.likes,
+            views: item.views,
+            title: item.title,
+          }),
           });
           const data = await res.json();
           if (data.ok) {

@@ -120,12 +120,21 @@ def resolve_video(url: str) -> tuple[str, str]:
 
 
 def _fetch_tikwm(url: str) -> dict[str, Any]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.tikwm.com/",
+        "Origin": "https://www.tikwm.com",
+    }
     try:
         resp = requests.post(
             TIKWM_API,
             data={"url": url, "hd": 1},
             timeout=30,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; VideoBoost/1.0)"},
+            headers=headers,
         )
         resp.raise_for_status()
         return resp.json()

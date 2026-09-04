@@ -9,6 +9,7 @@ from typing import Any
 from boost_history import get_boost, is_full_boosted
 from config import QUEUE_LOOKBACK_HOURS, QUEUE_MIN_AGE_HOURS, QUEUE_PROFILE
 from profile_feed import ProfileFeedError, fetch_profile_videos
+from tiktok_stats import extract_video_id
 
 _cache: dict[str, Any] = {}
 _CACHE_TTL = 120.0
@@ -100,16 +101,51 @@ def build_queue(
     return payload
 
 
+def _url_key(url: str) -> str:
+    return url.strip().rstrip("/").lower()
+
+
+def _find_in_queue(queue: dict[str, Any], *, url: str = "", video_id: str = "") -> dict[str, Any] | None:
+    target_url = _url_key(url) if url else ""
+    target_id = str(video_id) if video_id else ""
+    if not target_id and url:
+        extracted = extract_video_id(url)
+        if extracted:
+            target_id = extracted
+
+    for bucket in ("ready", "waiting", "boosted"):
+        for item in queue.get(bucket, []):
+            if target_url and _url_key(item.get("url") or "") == target_url:
+                return item
+            if target_id and str(item.get("video_id")) == target_id:
+                return item
+    return None
+
+
 def queue_item_for_video(video_id: str, *, force_refresh: bool = False) -> dict[str, Any] | None:
     queue = build_queue(force_refresh=force_refresh)
     if not queue.get("ok"):
         return None
-    vid = str(video_id)
-    for bucket in ("ready", "waiting", "boosted"):
-        for item in queue.get(bucket, []):
-            if str(item.get("video_id")) == vid:
-                return item
-    return None
+    return _find_in_queue(queue, video_id=str(video_id))
+
+
+def queue_item_for_url(url: str, *, force_refresh: bool = False) -> dict[str, Any] | None:
+    queue = build_queue(force_refresh=force_refresh)
+    if not queue.get("ok"):
+        return None
+    return _find_in_queue(queue, url=url)
+
+
+def stats_from_queue_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "url": item["url"],
+        "video_id": str(item["video_id"]),
+        "views": int(item.get("views") or 0),
+        "likes": int(item.get("likes") or 0),
+        "title": (item.get("title") or "").strip(),
+        "author": None,
+        "cover": item.get("cover"),
+    }
 
 
 def invalidate_cache() -> None:

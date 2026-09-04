@@ -10,7 +10,13 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
 from boost_history import ensure_history_loaded, get_boost, history_stats, is_full_boosted, merge_history, record_boost
-from boost_queue import build_queue, invalidate_cache, queue_item_for_video
+from boost_queue import (
+    build_queue,
+    invalidate_cache,
+    queue_item_for_url,
+    queue_item_for_video,
+    stats_from_queue_item,
+)
 from config import (
     BOOST_ADMIN_SECRET,
     FULL_LIKES_MAX,
@@ -32,7 +38,7 @@ from config import (
     VIEWS_QUANTITY,
     VIEWS_SERVICE_ID,
 )
-from tiktok_stats import TikTokStatsError, get_video_stats, resolve_video
+from tiktok_stats import TikTokStatsError, extract_video_id, get_video_stats
 from zefame_client import ZefameAPIError, ZefameClient
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -122,48 +128,77 @@ def _already_boosted_payload(video_id: str) -> dict:
     }
 
 
+def _queue_hint_item(url: str, hint: dict[str, Any]) -> dict[str, Any] | None:
+    video_id = str(hint.get("video_id") or extract_video_id(url) or "")
+    if not video_id:
+        return None
+    return {
+        "video_id": video_id,
+        "url": url,
+        "likes": int(hint.get("likes") or 0),
+        "views": int(hint.get("views") or 0),
+        "title": hint.get("title") or "",
+        "status": "ready",
+        "already_boosted": is_full_boosted(video_id),
+    }
+
+
 def _run_boost(
     url: str,
     mode: str,
     *,
     quantity: int | None = None,
     from_queue: bool = False,
+    queue_hint: dict[str, Any] | None = None,
 ) -> tuple[dict, int]:
     if not url:
         return {"ok": False, "error": "Please enter a video URL."}, 400
 
-    try:
-        stats = get_video_stats(url)
-        video_id = str(stats["video_id"])
-        canonical_url = stats["url"]
-        current_likes = stats["likes"]
-    except TikTokStatsError as exc:
-        return {"ok": False, "error": str(exc)}, 400
-
-    if from_queue and mode == BOOST_MODE_FULL:
-        item = queue_item_for_video(video_id, force_refresh=True)
+    if from_queue:
+        item = queue_item_for_url(url)
+        if not item and queue_hint:
+            item = _queue_hint_item(url, queue_hint)
+        if not item:
+            video_id_hint = extract_video_id(url)
+            if video_id_hint:
+                item = queue_item_for_video(video_id_hint)
         if not item:
             return {
                 "ok": False,
                 "error": "Video is not in the approval queue.",
-                "video_id": video_id,
+                "video_id": extract_video_id(url),
             }, 400
-        if item.get("status") == "waiting":
-            return {
-                "ok": False,
-                "error": (
-                    f"Video must be at least {QUEUE_MIN_AGE_HOURS} hour(s) old before boosting."
-                ),
-                "video_id": video_id,
-                "eligible_at": item.get("eligible_at"),
-            }, 400
-        if item.get("already_boosted"):
-            return {
-                "ok": False,
-                "error": "This video already received the full boost pack.",
-                "video_id": video_id,
-                **_already_boosted_payload(video_id),
-            }, 409
+
+        stats = stats_from_queue_item(item)
+        video_id = str(stats["video_id"])
+        canonical_url = stats["url"]
+        current_likes = stats["likes"]
+
+        if mode == BOOST_MODE_FULL:
+            if item.get("status") == "waiting":
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Video must be at least {QUEUE_MIN_AGE_HOURS} hour(s) old before boosting."
+                    ),
+                    "video_id": video_id,
+                    "eligible_at": item.get("eligible_at"),
+                }, 400
+            if item.get("already_boosted"):
+                return {
+                    "ok": False,
+                    "error": "This video already received the full boost pack.",
+                    "video_id": video_id,
+                    **_already_boosted_payload(video_id),
+                }, 409
+    else:
+        try:
+            stats = get_video_stats(url)
+            video_id = str(stats["video_id"])
+            canonical_url = stats["url"]
+            current_likes = stats["likes"]
+        except TikTokStatsError as exc:
+            return {"ok": False, "error": str(exc)}, 400
 
     if mode == BOOST_MODE_FULL and is_full_boosted(video_id):
         return (
@@ -334,7 +369,13 @@ def boost():
         if quantity is None:
             return jsonify({"ok": False, "error": f"Enter at least {LIKES_MIN} likes."}), 400
 
-    payload, status = _run_boost(url, mode, quantity=quantity, from_queue=from_queue)
+    payload, status = _run_boost(
+        url,
+        mode,
+        quantity=quantity,
+        from_queue=from_queue,
+        queue_hint=body if from_queue else None,
+    )
     return jsonify(payload), status
 
 
