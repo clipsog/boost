@@ -41,10 +41,10 @@ Automatically loads videos from **@the.clips.og** posted in the last **24 hours*
 
 Choose a boost pack:
 
-- **Full pack:** views tiered by current video likes — 0 → 480 · 1–7 → 541 · 8–19 → 650 · ≥20 → 750; always sends 10–14 likes (1089)
-- **Lower boost:** 300 views (953) + 10 likes (1089)
+- **Full pack:** views tiered by current video likes — 0 → 480 · 1–7 → 541 · 8–19 → 650 · ≥20 → 750; always sends 10–14 likes (1063)
+- **Lower boost:** 300 views (953) + 10 likes (1063)
 - **Views only:** custom views (953, min 100)
-- **Likes only:** custom likes (1089, min 10)
+- **Likes only:** custom likes (1063, min 10)
 
 ```bash
 source .venv/bin/activate
@@ -60,7 +60,7 @@ Override defaults in `.env`:
 ZEFAME_VIEWS_SERVICE=953
 ZEFAME_VIEWS_QUANTITY=542
 ZEFAME_LOW_VIEWS_QUANTITY=300
-ZEFAME_LIKES_SERVICE=1089
+ZEFAME_LIKES_SERVICE=1063
 ZEFAME_LIKES_QUANTITY=10
 ZEFAME_FULL_LIKES_MIN=10
 ZEFAME_FULL_LIKES_MAX=14

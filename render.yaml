@@ -13,7 +13,7 @@ services:
       - key: ZEFAME_VIEWS_SERVICE
         value: "953"
       - key: ZEFAME_LIKES_SERVICE
-        value: "1089"
+        value: "1063"
       - key: BOOST_ADMIN_SECRET
         sync: false
       - key: PYTHON_VERSION
