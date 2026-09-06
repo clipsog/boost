@@ -1106,6 +1106,11 @@
     function formatBoostError(data, title) {
       if (data.error) return data.error;
       const parts = [];
+      if (!data.likes?.ok) {
+        parts.push("Likes failed — views were not sent");
+      } else if (!data.views?.ok) {
+        parts.push("Views failed — likes cancel was attempted");
+      }
       if (data.views?.error) parts.push(`Views: ${data.views.error}`);
       if (data.likes?.error) parts.push(`Likes: ${data.likes.error}`);
       return parts.length ? parts.join("; ") : `${title}: boost failed`;

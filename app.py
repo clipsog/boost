@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import random
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
@@ -70,6 +71,92 @@ def _place(service_id: int, link: str, quantity: int) -> dict:
         return {"ok": False, "service": service_id, "quantity": quantity, "error": str(exc)}
     except Exception as exc:
         return {"ok": False, "service": service_id, "quantity": quantity, "error": str(exc)}
+
+
+_service_rates: dict[int, float] | None = None
+
+
+def _load_service_rates() -> dict[int, float]:
+    global _service_rates
+    if _service_rates is not None:
+        return _service_rates
+    try:
+        _service_rates = {
+            int(service["service"]): float(service["rate"])
+            for service in client.services()
+        }
+    except Exception:
+        _service_rates = {}
+    return _service_rates
+
+
+def _order_cost(service_id: int, quantity: int) -> float:
+    rate = _load_service_rates().get(service_id, 0.0)
+    return rate * quantity / 1000
+
+
+def _balance_error_for_pack(views_qty: int, likes_qty: int) -> str | None:
+    """Refuse dual orders unless balance covers both legs."""
+    try:
+        balance = float(client.balance()["balance"])
+    except Exception:
+        return None
+
+    needed = _order_cost(VIEWS_SERVICE_ID, views_qty) + _order_cost(LIKES_SERVICE_ID, likes_qty)
+    if needed <= 0:
+        return None
+    if balance + 1e-9 < needed:
+        currency = "EUR"
+        try:
+            currency = client.balance().get("currency") or currency
+        except Exception:
+            pass
+        return (
+            f"Insufficient balance for views + likes "
+            f"(need ~{needed:.4f} {currency}, have {balance:.4f} {currency}). "
+            "Top up before boosting so both orders are sent."
+        )
+    return None
+
+
+def _try_cancel_order(order_id: int | str | None) -> dict | None:
+    if not order_id:
+        return None
+    try:
+        return client.cancel([order_id])
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "order": order_id}
+
+
+def _place_views_and_likes(
+    link: str,
+    views_qty: int,
+    likes_qty: int,
+) -> tuple[dict, dict]:
+    """Place likes then views; roll back the first order if the second fails."""
+    balance_error = _balance_error_for_pack(views_qty, likes_qty)
+    if balance_error:
+        failed = {
+            "ok": False,
+            "service": LIKES_SERVICE_ID,
+            "quantity": likes_qty,
+            "error": balance_error,
+        }
+        return failed, failed
+
+    likes = _place(LIKES_SERVICE_ID, link, likes_qty)
+    if not likes.get("ok"):
+        return {"ok": False, "skipped": True, "reason": "likes_not_placed"}, likes
+
+    views = _place(VIEWS_SERVICE_ID, link, views_qty)
+    if views.get("ok"):
+        return views, likes
+
+    cancel_result = _try_cancel_order(likes.get("order"))
+    if cancel_result is not None:
+        likes["cancel_attempt"] = cancel_result
+    likes["rolled_back"] = bool(cancel_result)
+    return views, likes
 
 
 def _normalize_mode(mode: str | None) -> str:
@@ -225,13 +312,17 @@ def _run_boost(
         likes = _place(LIKES_SERVICE_ID, canonical_url, likes_quantity)
         all_ok = likes.get("ok")
     elif mode == BOOST_MODE_LOWER:
-        views = _place(VIEWS_SERVICE_ID, canonical_url, LOW_VIEWS_QUANTITY)
-        likes = _place(LIKES_SERVICE_ID, canonical_url, LIKES_QUANTITY)
+        balance_error = _balance_error_for_pack(LOW_VIEWS_QUANTITY, LIKES_QUANTITY)
+        if balance_error:
+            return {"ok": False, "error": balance_error}, 400
+        views, likes = _place_views_and_likes(canonical_url, LOW_VIEWS_QUANTITY, LIKES_QUANTITY)
         all_ok = views.get("ok") and likes.get("ok")
     else:
         full_views_qty, full_likes_qty = _full_pack_quantities(current_likes)
-        views = _place(VIEWS_SERVICE_ID, canonical_url, full_views_qty)
-        likes = _place(LIKES_SERVICE_ID, canonical_url, full_likes_qty)
+        balance_error = _balance_error_for_pack(full_views_qty, full_likes_qty)
+        if balance_error:
+            return {"ok": False, "error": balance_error, "video_id": video_id}, 400
+        views, likes = _place_views_and_likes(canonical_url, full_views_qty, full_likes_qty)
         all_ok = views.get("ok") and likes.get("ok")
 
     try:
@@ -250,6 +341,17 @@ def _run_boost(
         mark_video_boosted_in_cache(video_id)
 
     order_error = _order_errors(views, likes)
+    if not all_ok and views and likes:
+        if not likes.get("ok"):
+            order_error = (
+                f"{order_error or likes.get('error') or 'Likes order failed'}; "
+                "views were not sent."
+            )
+        elif not views.get("ok"):
+            order_error = (
+                f"{order_error or views.get('error') or 'Views order failed'}; "
+                "likes cancel was attempted."
+            )
     return (
         {
             "ok": all_ok,
