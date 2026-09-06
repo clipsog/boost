@@ -4,13 +4,23 @@
 from __future__ import annotations
 
 import random
+import time
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
-from boost_history import ensure_history_loaded, get_boost, history_stats, is_full_boosted, merge_history, record_boost
+from boost_history import (
+    ensure_history_loaded,
+    get_boost,
+    has_views_boost,
+    history_stats,
+    is_full_boosted,
+    merge_history,
+    record_boost,
+    record_partial_views,
+)
 from boost_queue import (
     build_queue,
     invalidate_cache,
@@ -61,6 +71,9 @@ BOOST_MODE_FULL = "full"
 BOOST_MODE_LOWER = "lower"
 BOOST_MODE_VIEWS_ONLY = "views_only"
 BOOST_MODE_LIKES_ONLY = "likes_only"
+BOOST_MODE_COMPLETE = "complete"
+
+VIEWS_BOOST_DELTA = 250
 
 
 def _place(service_id: int, link: str, quantity: int) -> dict:
@@ -193,7 +206,45 @@ def _normalize_mode(mode: str | None) -> str:
         return BOOST_MODE_LIKES_ONLY
     if mode == BOOST_MODE_LOWER:
         return BOOST_MODE_LOWER
+    if mode == BOOST_MODE_COMPLETE:
+        return BOOST_MODE_COMPLETE
     return BOOST_MODE_FULL
+
+
+def _views_already_sent(
+    video_id: str,
+    *,
+    baseline_views: int,
+    fresh_item: dict[str, Any] | None,
+) -> tuple[bool, str]:
+    if has_views_boost(video_id):
+        return True, "history"
+
+    current_views = int((fresh_item or {}).get("views") or baseline_views or 0)
+    if baseline_views and current_views >= baseline_views + VIEWS_BOOST_DELTA:
+        return True, "view_count_increased"
+    return False, "view_count_unchanged"
+
+
+def _resolve_queue_target(
+    url: str,
+    queue_hint: dict[str, Any] | None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    item = None
+    if queue_hint and str(queue_hint.get("video_id") or extract_video_id(url) or ""):
+        item = queue_item_from_hint(url, queue_hint)
+    if not item:
+        item = queue_item_for_url(url)
+    if not item:
+        video_id_hint = extract_video_id(url)
+        if video_id_hint:
+            item = queue_item_for_video(video_id_hint)
+    if not item:
+        return None, None
+
+    stats = stats_from_queue_item(item)
+    fresh_item = queue_item_for_video(stats["video_id"], force_refresh=True) or item
+    return item, fresh_item
 
 
 def _parse_views_quantity(raw: object) -> int | None:
@@ -253,6 +304,98 @@ def _order_errors(views: dict | None, likes: dict | None) -> str | None:
     return "; ".join(parts) if parts else None
 
 
+def _run_complete_boost(
+    url: str,
+    *,
+    queue_hint: dict[str, Any] | None = None,
+) -> tuple[dict, int]:
+    item, fresh_item = _resolve_queue_target(url, queue_hint)
+    if not item:
+        return {
+            "ok": False,
+            "error": "Video is not in the approval queue.",
+            "video_id": extract_video_id(url),
+        }, 400
+
+    stats = stats_from_queue_item(fresh_item or item)
+    video_id = str(stats["video_id"])
+    canonical_url = stats["url"]
+    current_likes = stats["likes"]
+    baseline_views = int(queue_hint.get("views") if queue_hint else item.get("views") or 0)
+
+    if is_full_boosted(video_id):
+        return (
+            {
+                "ok": False,
+                "error": "This video already received the full boost pack.",
+                "video_id": video_id,
+                **_already_boosted_payload(video_id),
+            },
+            409,
+        )
+
+    views_sent, views_reason = _views_already_sent(
+        video_id,
+        baseline_views=baseline_views,
+        fresh_item=fresh_item,
+    )
+    likes_qty = random.randint(FULL_LIKES_MIN, FULL_LIKES_MAX)
+    views = None
+    likes = None
+
+    if views_sent:
+        likes = _place(LIKES_SERVICE_ID, canonical_url, likes_qty)
+        views = {"ok": True, "skipped": True, "reason": views_reason}
+        all_ok = bool(likes.get("ok"))
+        existing = get_boost(video_id) or {}
+        views_order = existing.get("views_order")
+    else:
+        views_qty, likes_qty = _full_pack_quantities(current_likes)
+        balance_error = _balance_error_for_pack(views_qty, likes_qty)
+        if balance_error:
+            return {"ok": False, "error": balance_error, "video_id": video_id}, 400
+        views, likes = _place_views_and_likes(canonical_url, views_qty, likes_qty)
+        all_ok = views.get("ok") and likes.get("ok")
+        views_order = views.get("order") if views else None
+        if views.get("ok") and not likes.get("ok"):
+            record_partial_views(
+                video_id,
+                url=canonical_url,
+                views_order=views_order,
+                views_at_queue=baseline_views,
+            )
+
+    try:
+        balance = client.balance()
+    except Exception:
+        balance = None
+
+    if all_ok:
+        record_boost(
+            video_id,
+            url=canonical_url,
+            views_order=views_order,
+            likes_order=likes.get("order") if likes else None,
+        )
+        mark_video_boosted_in_cache(video_id)
+
+    order_error = _order_errors(views, likes)
+    return (
+        {
+            "ok": all_ok,
+            "error": order_error,
+            "mode": BOOST_MODE_COMPLETE,
+            "views_sent_already": views_sent,
+            "url": canonical_url,
+            "video_id": video_id,
+            "views": views,
+            "likes": likes,
+            "balance": balance,
+        },
+        200,
+    )
+
+
 def _run_boost(
     url: str,
     mode: str,
@@ -263,6 +406,9 @@ def _run_boost(
 ) -> tuple[dict, int]:
     if not url:
         return {"ok": False, "error": "Please enter a video URL."}, 400
+
+    if mode == BOOST_MODE_COMPLETE:
+        return _run_complete_boost(url, queue_hint=queue_hint)
 
     if from_queue:
         item = None
@@ -517,6 +663,57 @@ def boost():
         queue_hint=body if from_queue else None,
     )
     return jsonify(payload), status
+
+
+@app.post("/api/queue/complete-boosts")
+def complete_queue_boosts():
+    queue = build_queue(force_refresh=True)
+    if not queue.get("ok"):
+        return jsonify(queue), 502
+
+    results: list[dict[str, Any]] = []
+    ok_count = 0
+    fail_count = 0
+    skip_count = 0
+
+    targets: list[dict[str, Any]] = []
+    for bucket in ("ready", "waiting"):
+        targets.extend(queue.get(bucket) or [])
+
+    for item in targets:
+        video_id = str(item.get("video_id") or "")
+        if is_full_boosted(video_id):
+            skip_count += 1
+            results.append({"video_id": video_id, "ok": True, "skipped": "already_boosted"})
+            continue
+
+        payload, _status = _run_complete_boost(
+            item["url"],
+            queue_hint=item,
+        )
+        results.append(payload)
+        if payload.get("ok"):
+            ok_count += 1
+        else:
+            fail_count += 1
+        time.sleep(1.5)
+
+    try:
+        balance = client.balance()
+    except Exception:
+        balance = None
+
+    return jsonify(
+        {
+            "ok": fail_count == 0,
+            "processed": len(targets),
+            "ok_count": ok_count,
+            "fail_count": fail_count,
+            "skip_count": skip_count,
+            "balance": balance,
+            "results": results,
+        }
+    )
 
 
 if __name__ == "__main__":

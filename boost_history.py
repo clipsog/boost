@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from config import BOOST_HISTORY_PATH, BOOST_HISTORY_SEED_PATH
 
 HISTORY_PATH = BOOST_HISTORY_PATH
 BOOST_MODE_FULL = "full"
+BOOST_MODE_PARTIAL_VIEWS = "partial_views"
 
 
 def _load() -> dict[str, Any]:
@@ -43,6 +43,15 @@ def get_boost(video_id: str) -> dict[str, Any] | None:
 def is_full_boosted(video_id: str) -> bool:
     entry = get_boost(str(video_id))
     return bool(entry and _entry_is_full_boost(entry))
+
+
+def has_views_boost(video_id: str) -> bool:
+    entry = get_boost(str(video_id))
+    if not entry:
+        return False
+    if entry.get("views_order") or entry.get("views_sent"):
+        return True
+    return entry.get("boost_mode") == BOOST_MODE_PARTIAL_VIEWS
 
 
 def history_stats() -> dict[str, Any]:
@@ -94,6 +103,30 @@ def ensure_history_loaded() -> dict[str, int] | None:
     return merge_history(incoming)
 
 
+def record_partial_views(
+    video_id: str,
+    *,
+    url: str,
+    views_order: int | str | None = None,
+    views_at_queue: int | None = None,
+) -> dict[str, Any]:
+    data = _load()
+    existing = data.get(str(video_id)) or {}
+    entry = {
+        **existing,
+        "video_id": str(video_id),
+        "url": url,
+        "boosted_at": existing.get("boosted_at") or datetime.now(timezone.utc).isoformat(),
+        "boost_mode": BOOST_MODE_PARTIAL_VIEWS,
+        "views_sent": True,
+        "views_order": views_order or existing.get("views_order"),
+        "views_at_queue": views_at_queue if views_at_queue is not None else existing.get("views_at_queue"),
+    }
+    data[str(video_id)] = entry
+    _save(data)
+    return entry
+
+
 def record_boost(
     video_id: str,
     *,
@@ -106,12 +139,13 @@ def record_boost(
         return None
 
     data = _load()
+    existing = data.get(str(video_id)) or {}
     entry = {
         "video_id": str(video_id),
         "url": url,
         "boosted_at": datetime.now(timezone.utc).isoformat(),
         "boost_mode": BOOST_MODE_FULL,
-        "views_order": views_order,
+        "views_order": views_order or existing.get("views_order"),
         "likes_order": likes_order,
     }
     data[str(video_id)] = entry
