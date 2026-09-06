@@ -148,5 +148,61 @@ def stats_from_queue_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def queue_item_from_hint(url: str, hint: dict[str, Any]) -> dict[str, Any] | None:
+    """Build a queue item from client metadata without refetching the profile."""
+    video_id = str(hint.get("video_id") or extract_video_id(url) or "")
+    if not video_id:
+        return None
+
+    canonical_url = (url or hint.get("url") or "").strip()
+    if not canonical_url:
+        canonical_url = f"https://www.tiktok.com/video/{video_id}"
+
+    now_dt = datetime.now(timezone.utc)
+    posted_raw = hint.get("posted_at")
+    status = "ready"
+    eligible_at = None
+    if posted_raw:
+        posted_at = _parse_iso(str(posted_raw))
+        if posted_at.tzinfo is None:
+            posted_at = posted_at.replace(tzinfo=timezone.utc)
+        eligible = posted_at + timedelta(hours=QUEUE_MIN_AGE_HOURS)
+        eligible_at = eligible.isoformat()
+        if now_dt < eligible:
+            status = "waiting"
+
+    return {
+        "video_id": video_id,
+        "url": canonical_url,
+        "likes": int(hint.get("likes") or 0),
+        "views": int(hint.get("views") or 0),
+        "title": hint.get("title") or "",
+        "posted_at": posted_raw,
+        "status": status,
+        "eligible_at": eligible_at,
+        "already_boosted": is_full_boosted(video_id),
+    }
+
+
+def mark_video_boosted_in_cache(video_id: str) -> None:
+    """Drop a video from cached ready/waiting lists after a successful boost."""
+    vid = str(video_id)
+    for cache_key, (ts, payload) in list(_cache.items()):
+        if not payload.get("ok"):
+            continue
+        changed = False
+        for bucket in ("ready", "waiting"):
+            items = payload.get(bucket) or []
+            kept = [item for item in items if str(item.get("video_id")) != vid]
+            if len(kept) != len(items):
+                payload[bucket] = kept
+                changed = True
+        if changed:
+            payload["counts"]["ready"] = len(payload.get("ready") or [])
+            payload["counts"]["waiting"] = len(payload.get("waiting") or [])
+            payload["counts"]["boosted"] = int(payload["counts"].get("boosted") or 0) + 1
+            _cache[cache_key] = (ts, payload)
+
+
 def invalidate_cache() -> None:
     _cache.clear()

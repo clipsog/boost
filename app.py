@@ -13,8 +13,10 @@ from boost_history import ensure_history_loaded, get_boost, history_stats, is_fu
 from boost_queue import (
     build_queue,
     invalidate_cache,
+    mark_video_boosted_in_cache,
     queue_item_for_url,
     queue_item_for_video,
+    queue_item_from_hint,
     stats_from_queue_item,
 )
 from config import (
@@ -128,19 +130,13 @@ def _already_boosted_payload(video_id: str) -> dict:
     }
 
 
-def _queue_hint_item(url: str, hint: dict[str, Any]) -> dict[str, Any] | None:
-    video_id = str(hint.get("video_id") or extract_video_id(url) or "")
-    if not video_id:
-        return None
-    return {
-        "video_id": video_id,
-        "url": url,
-        "likes": int(hint.get("likes") or 0),
-        "views": int(hint.get("views") or 0),
-        "title": hint.get("title") or "",
-        "status": "ready",
-        "already_boosted": is_full_boosted(video_id),
-    }
+def _order_errors(views: dict | None, likes: dict | None) -> str | None:
+    parts: list[str] = []
+    if views and not views.get("ok"):
+        parts.append(f"Views: {views.get('error') or 'order failed'}")
+    if likes and not likes.get("ok"):
+        parts.append(f"Likes: {likes.get('error') or 'order failed'}")
+    return "; ".join(parts) if parts else None
 
 
 def _run_boost(
@@ -155,9 +151,11 @@ def _run_boost(
         return {"ok": False, "error": "Please enter a video URL."}, 400
 
     if from_queue:
-        item = queue_item_for_url(url)
-        if not item and queue_hint:
-            item = _queue_hint_item(url, queue_hint)
+        item = None
+        if queue_hint and str(queue_hint.get("video_id") or extract_video_id(url) or ""):
+            item = queue_item_from_hint(url, queue_hint)
+        if not item:
+            item = queue_item_for_url(url)
         if not item:
             video_id_hint = extract_video_id(url)
             if video_id_hint:
@@ -249,11 +247,13 @@ def _run_boost(
             views_order=views.get("order") if views else None,
             likes_order=likes.get("order") if likes else None,
         )
-        invalidate_cache()
+        mark_video_boosted_in_cache(video_id)
 
+    order_error = _order_errors(views, likes)
     return (
         {
             "ok": all_ok,
+            "error": order_error,
             "mode": mode,
             "url": canonical_url,
             "video_id": video_id,

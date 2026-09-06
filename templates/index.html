@@ -1090,6 +1090,27 @@
       return rem ? `${hrs}h ${rem}m` : `${hrs}h`;
     }
 
+    function queueBoostPayload(item) {
+      return {
+        url: item.url,
+        mode: "full",
+        from_queue: true,
+        video_id: item.video_id,
+        likes: item.likes,
+        views: item.views,
+        title: item.title,
+        posted_at: item.posted_at,
+      };
+    }
+
+    function formatBoostError(data, title) {
+      if (data.error) return data.error;
+      const parts = [];
+      if (data.views?.error) parts.push(`Views: ${data.views.error}`);
+      if (data.likes?.error) parts.push(`Likes: ${data.likes.error}`);
+      return parts.length ? parts.join("; ") : `${title}: boost failed`;
+    }
+
     function renderQueueItem(item, { approvable }) {
       const thumb = item.cover
         ? `<img src="${item.cover}" alt="">`
@@ -1098,7 +1119,7 @@
         ? `<span class="queue-badge ready">Ready</span>`
         : `<span class="queue-badge waiting">Ready in ${formatWait(item.seconds_until_ready || 0)}</span>`;
       const action = approvable
-        ? `<button type="button" class="queue-approve" data-queue-url="${item.url}" data-queue-video-id="${item.video_id}" data-queue-likes="${item.likes}" data-queue-views="${item.views}" data-queue-title="${(item.title || "").replace(/"/g, "&quot;")}">Approve boost</button>`
+        ? `<button type="button" class="queue-approve" data-queue-url="${item.url}" data-queue-video-id="${item.video_id}" data-queue-likes="${item.likes}" data-queue-views="${item.views}" data-queue-posted-at="${item.posted_at || ""}" data-queue-title="${(item.title || "").replace(/"/g, "&quot;")}">Approve boost</button>`
         : "";
       return `
         <div class="queue-item">
@@ -1188,6 +1209,7 @@
             video_id: button.dataset.queueVideoId,
             likes: Number(button.dataset.queueLikes || 0),
             views: Number(button.dataset.queueViews || 0),
+            posted_at: button.dataset.queuePostedAt || "",
             title: button.dataset.queueTitle || "",
           }),
         });
@@ -1237,15 +1259,7 @@
           const res = await fetch("/api/boost", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-            url: item.url,
-            mode: "full",
-            from_queue: true,
-            video_id: item.video_id,
-            likes: item.likes,
-            views: item.views,
-            title: item.title,
-          }),
+            body: JSON.stringify(queueBoostPayload(item)),
           });
           const data = await res.json();
           if (data.ok) {
@@ -1254,9 +1268,11 @@
               balanceLine.innerHTML =
                 `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
             }
+          } else if (res.status === 409 || data.already_boosted) {
+            ok += 1;
           } else {
             failed += 1;
-            failures.push(data.error || title);
+            failures.push(formatBoostError(data, title));
           }
         } catch (err) {
           failed += 1;
@@ -1264,7 +1280,7 @@
         }
 
         if (i < items.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 800));
+          await new Promise((resolve) => setTimeout(resolve, 1500));
         }
       }
 
