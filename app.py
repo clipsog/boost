@@ -90,8 +90,31 @@ def _load_service_rates() -> dict[int, float]:
     return _service_rates
 
 
+def _validate_service_ids() -> None:
+    rates = _load_service_rates()
+    if not rates:
+        print("Warning: could not load Zefame services list.", flush=True)
+        return
+    for label, service_id in (("views", VIEWS_SERVICE_ID), ("likes", LIKES_SERVICE_ID)):
+        if service_id not in rates:
+            raise RuntimeError(
+                f"Invalid ZEFAME_{label.upper()}_SERVICE={service_id}. "
+                "Update the service ID in Render env vars or config.py."
+            )
+    print(
+        f"Zefame services: views={VIEWS_SERVICE_ID}, likes={LIKES_SERVICE_ID}",
+        flush=True,
+    )
+
+
+_validate_service_ids()
+
+
 def _order_cost(service_id: int, quantity: int) -> float:
-    rate = _load_service_rates().get(service_id, 0.0)
+    rates = _load_service_rates()
+    if service_id not in rates:
+        raise ZefameAPIError(f"Service {service_id} is not available on Zefame.")
+    rate = rates[service_id]
     return rate * quantity / 1000
 
 
@@ -102,7 +125,11 @@ def _balance_error_for_pack(views_qty: int, likes_qty: int) -> str | None:
     except Exception:
         return None
 
-    needed = _order_cost(VIEWS_SERVICE_ID, views_qty) + _order_cost(LIKES_SERVICE_ID, likes_qty)
+    try:
+        needed = _order_cost(VIEWS_SERVICE_ID, views_qty) + _order_cost(LIKES_SERVICE_ID, likes_qty)
+    except ZefameAPIError as exc:
+        return str(exc)
+
     if needed <= 0:
         return None
     if balance + 1e-9 < needed:
@@ -405,6 +432,17 @@ def queue():
         payload["history"] = history_stats()
     status = 200 if payload.get("ok") else 502
     return jsonify(payload), status
+
+
+@app.get("/api/config")
+def config_route():
+    return jsonify(
+        {
+            "ok": True,
+            "views_service": VIEWS_SERVICE_ID,
+            "likes_service": LIKES_SERVICE_ID,
+        }
+    )
 
 
 @app.get("/api/history/stats")
