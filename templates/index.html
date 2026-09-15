@@ -1177,8 +1177,13 @@
       lastReadyItems = ready;
       const historyTotal = data.history?.full_boosted;
       const historyNote = historyTotal != null ? ` · ${formatCount(historyTotal)} in history` : "";
+      const assumedH = data.assumed_boost_hours;
+      const ageRule =
+        assumedH != null
+          ? ` · posts ≥${assumedH}h old count as boosted`
+          : "";
       queueStatus.textContent =
-        `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted${historyNote}`;
+        `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted${historyNote}${ageRule}`;
 
       boostAllReadyBtn.classList.toggle("hidden", ready.length === 0);
       boostAllReadyBtn.disabled = boostAllRunning || ready.length === 0;
