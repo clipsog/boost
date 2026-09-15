@@ -412,6 +412,7 @@ def _run_boost(
     mode: str,
     *,
     quantity: int | None = None,
+    likes_service: int | None = None,
     from_queue: bool = False,
     queue_hint: dict[str, Any] | None = None,
 ) -> tuple[dict, int]:
@@ -493,7 +494,8 @@ def _run_boost(
         likes_quantity = quantity if quantity is not None else _parse_likes_quantity(None)
         if likes_quantity is None or likes_quantity < LIKES_MIN:
             return {"ok": False, "error": f"Enter at least {LIKES_MIN} likes."}, 400
-        likes = _place(LIKES_SERVICE_ID, canonical_url, likes_quantity)
+        service_id = likes_service if likes_service is not None else LIKES_SERVICE_ID
+        likes = _place(service_id, canonical_url, likes_quantity)
         all_ok = likes.get("ok")
     elif mode == BOOST_MODE_LOWER:
         balance_error = _balance_error_for_pack(LOW_VIEWS_QUANTITY, LIKES_QUANTITY)
@@ -671,10 +673,19 @@ def boost():
         if quantity is None:
             return jsonify({"ok": False, "error": f"Enter at least {LIKES_MIN} likes."}), 400
 
+    likes_service = None
+    raw_service = body.get("likes_service") if body.get("likes_service") is not None else body.get("service")
+    if raw_service is not None:
+        try:
+            likes_service = int(raw_service)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "likes_service must be an integer."}), 400
+
     payload, status = _run_boost(
         url,
         mode,
         quantity=quantity,
+        likes_service=likes_service,
         from_queue=from_queue,
         queue_hint=body if from_queue else None,
     )
