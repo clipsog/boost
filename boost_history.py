@@ -127,6 +127,87 @@ def record_partial_views(
     return entry
 
 
+def _entry_has_real_orders(entry: dict[str, Any]) -> bool:
+    return bool(entry.get("views_order") or entry.get("likes_order"))
+
+
+def mark_assumed_boosted(
+    video_id: str,
+    *,
+    url: str,
+    posted_at: str | None = None,
+) -> bool:
+    """Mark a video as full-boosted in history without placing orders."""
+    vid = str(video_id)
+    existing = get_boost(vid)
+    if existing and _entry_is_full_boost(existing) and not existing.get("assumed_boosted"):
+        return False
+    if existing and _entry_has_real_orders(existing):
+        record_boost(
+            vid,
+            url=url,
+            views_order=existing.get("views_order"),
+            likes_order=existing.get("likes_order"),
+        )
+        return True
+
+    data = _load()
+    data[vid] = {
+        "video_id": vid,
+        "url": url,
+        "boosted_at": datetime.now(timezone.utc).isoformat(),
+        "boost_mode": BOOST_MODE_FULL,
+        "assumed_boosted": True,
+        "posted_at_at_mark": posted_at,
+    }
+    _save(data)
+    return True
+
+
+def clear_assumed_boost_if_newer(
+    video_id: str,
+    *,
+    posted_at: datetime,
+    cutoff: datetime,
+) -> bool:
+    """Remove assumed-only boost records for posts newer than the cutoff."""
+    if posted_at <= cutoff:
+        return False
+    entry = get_boost(str(video_id))
+    if not entry or not entry.get("assumed_boosted"):
+        return False
+    if _entry_has_real_orders(entry):
+        return False
+    data = _load()
+    data.pop(str(video_id), None)
+    _save(data)
+    return True
+
+
+def sync_assumed_boosts_for_videos(
+    videos: list[dict[str, Any]],
+    *,
+    cutoff: datetime,
+) -> dict[str, int]:
+    marked = 0
+    cleared = 0
+    for raw in videos:
+        posted_raw = raw.get("posted_at")
+        if not posted_raw:
+            continue
+        posted_at = datetime.fromisoformat(str(posted_raw))
+        if posted_at.tzinfo is None:
+            posted_at = posted_at.replace(tzinfo=timezone.utc)
+        vid = str(raw["video_id"])
+        url = str(raw.get("url") or f"https://www.tiktok.com/video/{vid}")
+        if posted_at <= cutoff:
+            if mark_assumed_boosted(vid, url=url, posted_at=str(posted_raw)):
+                marked += 1
+        elif clear_assumed_boost_if_newer(vid, posted_at=posted_at, cutoff=cutoff):
+            cleared += 1
+    return {"marked": marked, "cleared": cleared}
+
+
 def record_boost(
     video_id: str,
     *,
@@ -146,8 +227,10 @@ def record_boost(
         "boosted_at": datetime.now(timezone.utc).isoformat(),
         "boost_mode": BOOST_MODE_FULL,
         "views_order": views_order or existing.get("views_order"),
-        "likes_order": likes_order,
+        "likes_order": likes_order or existing.get("likes_order"),
     }
+    if existing.get("assumed_boosted") and not _entry_has_real_orders(entry):
+        entry["assumed_boosted"] = True
     data[str(video_id)] = entry
     _save(data)
     return entry

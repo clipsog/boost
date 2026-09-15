@@ -6,8 +6,13 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from boost_history import get_boost, is_full_boosted
-from config import QUEUE_LOOKBACK_HOURS, QUEUE_MIN_AGE_HOURS, QUEUE_PROFILE
+from boost_history import get_boost, is_full_boosted, sync_assumed_boosts_for_videos
+from config import (
+    ASSUMED_BOOST_HOURS,
+    QUEUE_LOOKBACK_HOURS,
+    QUEUE_MIN_AGE_HOURS,
+    QUEUE_PROFILE,
+)
 from profile_feed import ProfileFeedError, fetch_profile_videos
 from tiktok_stats import extract_video_id
 
@@ -67,6 +72,9 @@ def build_queue(
             "min_age_hours": min_age,
         }
 
+    assumed_cutoff = now_dt - timedelta(hours=ASSUMED_BOOST_HOURS)
+    assumed_sync = sync_assumed_boosts_for_videos(videos, cutoff=assumed_cutoff)
+
     ready: list[dict[str, Any]] = []
     waiting: list[dict[str, Any]] = []
     boosted: list[dict[str, Any]] = []
@@ -87,6 +95,8 @@ def build_queue(
         "profile_url": f"https://www.tiktok.com/@{profile}",
         "lookback_hours": lookback,
         "min_age_hours": min_age,
+        "assumed_boost_hours": ASSUMED_BOOST_HOURS,
+        "assumed_boost_sync": assumed_sync,
         "fetched_at": now_dt.isoformat(),
         "counts": {
             "ready": len(ready),

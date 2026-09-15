@@ -21,6 +21,8 @@ LIKES_MIN = int(os.getenv("ZEFAME_LIKES_MIN", "10"))
 QUEUE_PROFILE = os.getenv("ZEFAME_QUEUE_PROFILE", "the.clips.og").strip().lstrip("@")
 QUEUE_LOOKBACK_HOURS = int(os.getenv("ZEFAME_QUEUE_LOOKBACK_HOURS", "24"))
 QUEUE_MIN_AGE_HOURS = int(os.getenv("ZEFAME_QUEUE_MIN_AGE_HOURS", "1"))
+# Posts at least this old are treated as already boosted in queue/history (no new full pack).
+ASSUMED_BOOST_HOURS = float(os.getenv("ZEFAME_ASSUMED_BOOST_HOURS", "8"))
 
 _boost_history_raw = os.getenv("BOOST_HISTORY_PATH", "").strip()
 BOOST_HISTORY_PATH = (
