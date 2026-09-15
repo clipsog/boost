@@ -83,7 +83,13 @@ def _place(service_id: int, link: str, quantity: int) -> dict:
     except ZefameAPIError as exc:
         return {"ok": False, "service": service_id, "quantity": quantity, "error": str(exc)}
     except Exception as exc:
-        return {"ok": False, "service": service_id, "quantity": quantity, "error": str(exc)}
+        err = str(exc)
+        if "401" in err or "Unauthorized" in err:
+            err = (
+                "Zefame API rejected the request (check ZEFAME_API_KEY in .env). "
+                f"Details: {err}"
+            )
+        return {"ok": False, "service": service_id, "quantity": quantity, "error": err}
 
 
 _service_rates: dict[int, float] | None = None
@@ -186,7 +192,7 @@ def _place_views_and_likes(
 
     likes = _place(LIKES_SERVICE_ID, link, likes_qty)
     if not likes.get("ok"):
-        return {"ok": False, "skipped": True, "reason": "likes_not_placed"}, likes
+        return None, likes
 
     views = _place(VIEWS_SERVICE_ID, link, views_qty)
     if views.get("ok"):
@@ -355,9 +361,9 @@ def _run_complete_boost(
         if balance_error:
             return {"ok": False, "error": balance_error, "video_id": video_id}, 400
         views, likes = _place_views_and_likes(canonical_url, views_qty, likes_qty)
-        all_ok = views.get("ok") and likes.get("ok")
+        all_ok = bool(views and views.get("ok") and likes.get("ok"))
         views_order = views.get("order") if views else None
-        if views.get("ok") and not likes.get("ok"):
+        if views and views.get("ok") and likes and not likes.get("ok"):
             record_partial_views(
                 video_id,
                 url=canonical_url,
@@ -380,6 +386,11 @@ def _run_complete_boost(
         mark_video_boosted_in_cache(video_id)
 
     order_error = _order_errors(views, likes)
+    if not all_ok and likes and not likes.get("ok") and not views:
+        order_error = (
+            f"{order_error or likes.get('error') or 'Likes order failed'}; "
+            "views were not sent."
+        )
     return (
         {
             "ok": all_ok,
@@ -489,14 +500,14 @@ def _run_boost(
         if balance_error:
             return {"ok": False, "error": balance_error}, 400
         views, likes = _place_views_and_likes(canonical_url, LOW_VIEWS_QUANTITY, LIKES_QUANTITY)
-        all_ok = views.get("ok") and likes.get("ok")
+        all_ok = bool(views and views.get("ok") and likes.get("ok"))
     else:
         full_views_qty, full_likes_qty = _full_pack_quantities(current_likes)
         balance_error = _balance_error_for_pack(full_views_qty, full_likes_qty)
         if balance_error:
             return {"ok": False, "error": balance_error, "video_id": video_id}, 400
         views, likes = _place_views_and_likes(canonical_url, full_views_qty, full_likes_qty)
-        all_ok = views.get("ok") and likes.get("ok")
+        all_ok = bool(views and views.get("ok") and likes.get("ok"))
 
     try:
         balance = client.balance()
@@ -514,7 +525,12 @@ def _run_boost(
         mark_video_boosted_in_cache(video_id)
 
     order_error = _order_errors(views, likes)
-    if not all_ok and views and likes:
+    if not all_ok and likes and not likes.get("ok") and not views:
+        order_error = (
+            f"{order_error or likes.get('error') or 'Likes order failed'}; "
+            "views were not sent."
+        )
+    elif not all_ok and views and likes:
         if not likes.get("ok"):
             order_error = (
                 f"{order_error or likes.get('error') or 'Likes order failed'}; "

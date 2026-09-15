@@ -954,12 +954,18 @@
     });
 
     function renderOrder(label, data) {
+      if (!data) return "";
+      if (data.skipped) {
+        return `<div class="result-block"><span class="tag">${label}: Not sent</span><br><span style="color:var(--muted)">Skipped because the other order failed first.</span></div>`;
+      }
       const ok = data.ok;
       const cls = ok ? "ok" : "fail";
       const tag = ok ? "OK" : "Failed";
       let html = `<div class="result-block ${cls}">`;
       html += `<span class="tag ${cls}">${label}: ${tag}</span><br>`;
-      html += `Service ${data.service} · qty ${data.quantity}<br>`;
+      if (data.service != null && data.quantity != null) {
+        html += `Service ${data.service} · qty ${data.quantity}<br>`;
+      }
       if (ok && data.order) html += `Order ID: <strong>${data.order}</strong>`;
       if (!ok && data.error) html += `Error: ${data.error}`;
       html += `</div>`;
@@ -1024,6 +1030,16 @@
           return;
         }
 
+        if (data.error && !data.ok) {
+          result.classList.remove("hidden");
+          let html = `<div class="result-block fail">${data.error}</div>`;
+          if (data.likes) html += renderOrder("Likes", data.likes);
+          if (data.views) html += renderOrder("Views", data.views);
+          html += `<p style="color:var(--muted);margin-top:10px">Fix the failed order, then try again.</p>`;
+          result.innerHTML = html;
+          return;
+        }
+
         if (data.ok) {
           if (data.mode === "views_only") {
             showSinglePackSuccess(data, "views");
@@ -1045,6 +1061,7 @@
 
         result.classList.remove("hidden");
         let html = "";
+        if (data.error) html += `<div class="result-block fail">${data.error}</div>`;
         if (data.views) html += renderOrder("Views", data.views);
         if (data.likes) html += renderOrder("Likes", data.likes);
         html += `<p style="color:var(--muted);margin-top:10px">Fix the failed order, then boost another video.</p>`;
