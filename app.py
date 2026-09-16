@@ -116,10 +116,12 @@ def _validate_service_ids() -> None:
         return
     for label, service_id in (("views", VIEWS_SERVICE_ID), ("likes", LIKES_SERVICE_ID)):
         if service_id not in rates:
-            raise RuntimeError(
-                f"Invalid ZEFAME_{label.upper()}_SERVICE={service_id}. "
-                "Update the service ID in Render env vars or config.py."
+            print(
+                f"Warning: ZEFAME_{label.upper()}_SERVICE={service_id} is not in the "
+                "Zefame services list. Orders for that leg may fail until you update env.",
+                flush=True,
             )
+            continue
     print(
         f"Zefame services: views={VIEWS_SERVICE_ID}, likes={LIKES_SERVICE_ID}",
         flush=True,
