@@ -12,6 +12,9 @@ from config import (
     ASSUMED_BOOST_HOURS,
     BOOST_HISTORY_PATH,
     BOOST_HISTORY_SEED_PATH,
+    INFER_BOOST_LIKES_MIN,
+    INFER_BOOST_MIN_AGE_HOURS,
+    INFER_BOOST_VIEWS_MIN,
 )
 from zoneinfo import ZoneInfo
 
@@ -144,6 +147,9 @@ def mark_assumed_boosted(
     *,
     url: str,
     posted_at: str | None = None,
+    inferred_from_stats: bool = False,
+    views_at_mark: int | None = None,
+    likes_at_mark: int | None = None,
 ) -> bool:
     """Mark a video as full-boosted in history without placing orders."""
     vid = str(video_id)
@@ -160,7 +166,7 @@ def mark_assumed_boosted(
         return True
 
     data = _load()
-    data[vid] = {
+    entry = {
         "video_id": vid,
         "url": url,
         "boosted_at": datetime.now(timezone.utc).isoformat(),
@@ -168,26 +174,13 @@ def mark_assumed_boosted(
         "assumed_boosted": True,
         "posted_at_at_mark": posted_at,
     }
-    _save(data)
-    return True
-
-
-def clear_assumed_boost_if_unneeded(
-    video_id: str,
-    *,
-    posted_at: datetime,
-    now: datetime,
-) -> bool:
-    """Drop assumed-only history when the post should show in the queue again."""
-    if should_assume_boosted(posted_at, now=now):
-        return False
-    entry = get_boost(str(video_id))
-    if not entry or not entry.get("assumed_boosted"):
-        return False
-    if _entry_has_real_orders(entry):
-        return False
-    data = _load()
-    data.pop(str(video_id), None)
+    if inferred_from_stats:
+        entry["inferred_from_stats"] = True
+    if views_at_mark is not None:
+        entry["views_at_mark"] = views_at_mark
+    if likes_at_mark is not None:
+        entry["likes_at_mark"] = likes_at_mark
+    data[vid] = entry
     _save(data)
     return True
 
@@ -222,8 +215,9 @@ def sync_assumed_boosts_for_videos(
     now: datetime | None = None,
 ) -> dict[str, int]:
     marked = 0
-    cleared = 0
+    inferred = 0
     now_dt = now or datetime.now(timezone.utc)
+    min_age = timedelta(hours=INFER_BOOST_MIN_AGE_HOURS)
     for raw in videos:
         posted_raw = raw.get("posted_at")
         if not posted_raw:
@@ -233,12 +227,29 @@ def sync_assumed_boosts_for_videos(
             posted_at = posted_at.replace(tzinfo=timezone.utc)
         vid = str(raw["video_id"])
         url = str(raw.get("url") or f"https://www.tiktok.com/video/{vid}")
+        if is_full_boosted(vid):
+            continue
         if should_assume_boosted(posted_at, now=now_dt):
             if mark_assumed_boosted(vid, url=url, posted_at=str(posted_raw)):
                 marked += 1
-        elif clear_assumed_boost_if_unneeded(vid, posted_at=posted_at, now=now_dt):
-            cleared += 1
-    return {"marked": marked, "cleared": cleared}
+            continue
+        views = int(raw.get("views") or 0)
+        likes = int(raw.get("likes") or 0)
+        if (
+            now_dt - posted_at >= min_age
+            and views >= INFER_BOOST_VIEWS_MIN
+            and likes >= INFER_BOOST_LIKES_MIN
+            and mark_assumed_boosted(
+                vid,
+                url=url,
+                posted_at=str(posted_raw),
+                inferred_from_stats=True,
+                views_at_mark=views,
+                likes_at_mark=likes,
+            )
+        ):
+            inferred += 1
+    return {"marked": marked, "inferred": inferred}
 
 
 def record_boost(
@@ -247,6 +258,9 @@ def record_boost(
     url: str,
     views_order: int | str | None = None,
     likes_order: int | str | None = None,
+    views_at_boost: int | None = None,
+    likes_at_boost: int | None = None,
+    zefame_duplicate: bool = False,
     boost_mode: str = BOOST_MODE_FULL,
 ) -> dict[str, Any] | None:
     if boost_mode != BOOST_MODE_FULL:
@@ -262,6 +276,16 @@ def record_boost(
         "views_order": views_order or existing.get("views_order"),
         "likes_order": likes_order or existing.get("likes_order"),
     }
+    if views_at_boost is not None:
+        entry["views_at_boost"] = views_at_boost
+    elif existing.get("views_at_boost") is not None:
+        entry["views_at_boost"] = existing.get("views_at_boost")
+    if likes_at_boost is not None:
+        entry["likes_at_boost"] = likes_at_boost
+    elif existing.get("likes_at_boost") is not None:
+        entry["likes_at_boost"] = existing.get("likes_at_boost")
+    if zefame_duplicate or existing.get("zefame_duplicate"):
+        entry["zefame_duplicate"] = True
     if existing.get("assumed_boosted") and not _entry_has_real_orders(entry):
         entry["assumed_boosted"] = True
     data[str(video_id)] = entry

@@ -28,6 +28,10 @@ _assumed_et_hour = os.getenv("ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR", "17").strip(
 ASSUMED_BOOST_ET_CUTOFF_HOUR: int | None = (
     int(_assumed_et_hour) if _assumed_et_hour else None
 )
+# If a post is old enough and public stats look like a full pack landed, mark it boosted.
+INFER_BOOST_MIN_AGE_HOURS = float(os.getenv("ZEFAME_INFER_BOOST_MIN_AGE_HOURS", "2"))
+INFER_BOOST_VIEWS_MIN = int(os.getenv("ZEFAME_INFER_BOOST_VIEWS_MIN", "500"))
+INFER_BOOST_LIKES_MIN = int(os.getenv("ZEFAME_INFER_BOOST_LIKES_MIN", "18"))
 
 _boost_history_raw = os.getenv("BOOST_HISTORY_PATH", "").strip()
 BOOST_HISTORY_PATH = (

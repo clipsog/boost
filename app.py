@@ -193,6 +193,23 @@ def _try_cancel_order(order_id: int | str | None) -> dict | None:
         return {"ok": False, "error": str(exc), "order": order_id}
 
 
+def _boost_history_kwargs(
+    views: dict | None,
+    likes: dict | None,
+    *,
+    views_at_boost: int | None = None,
+    likes_at_boost: int | None = None,
+) -> dict[str, Any]:
+    return {
+        "views_order": (views or {}).get("order"),
+        "likes_order": (likes or {}).get("order"),
+        "views_at_boost": views_at_boost,
+        "likes_at_boost": likes_at_boost,
+        "zefame_duplicate": bool((views or {}).get("duplicate_skipped"))
+        or bool((likes or {}).get("duplicate_skipped")),
+    }
+
+
 def _place_views_and_likes(
     link: str,
     views_qty: int,
@@ -404,8 +421,12 @@ def _run_complete_boost(
         record_boost(
             video_id,
             url=canonical_url,
-            views_order=views_order,
-            likes_order=likes.get("order") if likes else None,
+            **_boost_history_kwargs(
+                views,
+                likes,
+                views_at_boost=baseline_views,
+                likes_at_boost=current_likes,
+            ),
         )
         mark_video_boosted_in_cache(video_id)
 
@@ -466,7 +487,8 @@ def _run_boost(
         stats = stats_from_queue_item(item)
         video_id = str(stats["video_id"])
         canonical_url = stats["url"]
-        current_likes = stats["likes"]
+        current_likes = int(stats["likes"])
+        current_views = int(stats.get("views") or 0)
 
         if mode == BOOST_MODE_FULL:
             if item.get("status") == "waiting":
@@ -490,7 +512,8 @@ def _run_boost(
             stats = get_video_stats(url)
             video_id = str(stats["video_id"])
             canonical_url = stats["url"]
-            current_likes = stats["likes"]
+            current_likes = int(stats["likes"])
+            current_views = int(stats.get("views") or 0)
         except TikTokStatsError as exc:
             return {"ok": False, "error": str(exc)}, 400
 
@@ -545,8 +568,12 @@ def _run_boost(
             video_id,
             url=canonical_url,
             boost_mode=mode,
-            views_order=views.get("order") if views else None,
-            likes_order=likes.get("order") if likes else None,
+            **_boost_history_kwargs(
+                views,
+                likes,
+                views_at_boost=current_views,
+                likes_at_boost=current_likes,
+            ),
         )
         mark_video_boosted_in_cache(video_id)
 
