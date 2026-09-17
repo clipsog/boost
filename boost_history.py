@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from config import BOOST_HISTORY_PATH, BOOST_HISTORY_SEED_PATH
+from config import (
+    ASSUMED_BOOST_ET_CUTOFF_HOUR,
+    ASSUMED_BOOST_HOURS,
+    BOOST_HISTORY_PATH,
+    BOOST_HISTORY_SEED_PATH,
+)
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo("America/New_York")
 
 HISTORY_PATH = BOOST_HISTORY_PATH
 BOOST_MODE_FULL = "full"
@@ -164,14 +172,14 @@ def mark_assumed_boosted(
     return True
 
 
-def clear_assumed_boost_if_newer(
+def clear_assumed_boost_if_unneeded(
     video_id: str,
     *,
     posted_at: datetime,
-    cutoff: datetime,
+    now: datetime,
 ) -> bool:
-    """Remove assumed-only boost records for posts newer than the cutoff."""
-    if posted_at <= cutoff:
+    """Drop assumed-only history when the post should show in the queue again."""
+    if should_assume_boosted(posted_at, now=now):
         return False
     entry = get_boost(str(video_id))
     if not entry or not entry.get("assumed_boosted"):
@@ -184,13 +192,35 @@ def clear_assumed_boost_if_newer(
     return True
 
 
+def should_assume_boosted(posted_at: datetime, *, now: datetime | None = None) -> bool:
+    """True when a post should be treated as already full-boosted in the queue."""
+    now_dt = now or datetime.now(timezone.utc)
+    if posted_at.tzinfo is None:
+        posted_at = posted_at.replace(tzinfo=timezone.utc)
+    if posted_at <= now_dt - timedelta(hours=ASSUMED_BOOST_HOURS):
+        return True
+
+    et_now = now_dt.astimezone(_ET)
+    et_post = posted_at.astimezone(_ET)
+    if et_post.date() < et_now.date():
+        return True
+    if (
+        ASSUMED_BOOST_ET_CUTOFF_HOUR is not None
+        and et_post.date() == et_now.date()
+        and et_post.hour < ASSUMED_BOOST_ET_CUTOFF_HOUR
+    ):
+        return True
+    return False
+
+
 def sync_assumed_boosts_for_videos(
     videos: list[dict[str, Any]],
     *,
-    cutoff: datetime,
+    now: datetime | None = None,
 ) -> dict[str, int]:
     marked = 0
     cleared = 0
+    now_dt = now or datetime.now(timezone.utc)
     for raw in videos:
         posted_raw = raw.get("posted_at")
         if not posted_raw:
@@ -200,10 +230,10 @@ def sync_assumed_boosts_for_videos(
             posted_at = posted_at.replace(tzinfo=timezone.utc)
         vid = str(raw["video_id"])
         url = str(raw.get("url") or f"https://www.tiktok.com/video/{vid}")
-        if posted_at <= cutoff:
+        if should_assume_boosted(posted_at, now=now_dt):
             if mark_assumed_boosted(vid, url=url, posted_at=str(posted_raw)):
                 marked += 1
-        elif clear_assumed_boost_if_newer(vid, posted_at=posted_at, cutoff=cutoff):
+        elif clear_assumed_boost_if_unneeded(vid, posted_at=posted_at, now=now_dt):
             cleared += 1
     return {"marked": marked, "cleared": cleared}
 

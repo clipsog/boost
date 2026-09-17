@@ -8,6 +8,7 @@ from typing import Any
 
 from boost_history import get_boost, is_full_boosted, sync_assumed_boosts_for_videos
 from config import (
+    ASSUMED_BOOST_ET_CUTOFF_HOUR,
     ASSUMED_BOOST_HOURS,
     QUEUE_LOOKBACK_HOURS,
     QUEUE_MIN_AGE_HOURS,
@@ -72,8 +73,7 @@ def build_queue(
             "min_age_hours": min_age,
         }
 
-    assumed_cutoff = now_dt - timedelta(hours=ASSUMED_BOOST_HOURS)
-    assumed_sync = sync_assumed_boosts_for_videos(videos, cutoff=assumed_cutoff)
+    assumed_sync = sync_assumed_boosts_for_videos(videos, now=now_dt)
 
     ready: list[dict[str, Any]] = []
     waiting: list[dict[str, Any]] = []
@@ -96,6 +96,7 @@ def build_queue(
         "lookback_hours": lookback,
         "min_age_hours": min_age,
         "assumed_boost_hours": ASSUMED_BOOST_HOURS,
+        "assumed_boost_et_cutoff_hour": ASSUMED_BOOST_ET_CUTOFF_HOUR,
         "assumed_boost_sync": assumed_sync,
         "fetched_at": now_dt.isoformat(),
         "counts": {

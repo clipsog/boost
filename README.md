@@ -75,9 +75,10 @@ ZEFAME_QUEUE_PROFILE=the.clips.og
 ZEFAME_QUEUE_LOOKBACK_HOURS=24
 ZEFAME_QUEUE_MIN_AGE_HOURS=1
 ZEFAME_ASSUMED_BOOST_HOURS=8
+ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR=17
 ```
 
-Posts at least **8 hours** old are auto-marked as already boosted in the queue (no full pack); only newer posts stay in **Ready**.
+Posts **≥8 hours** old, from a **previous Eastern calendar day**, or **before 5:00 PM ET today** are auto-marked as already boosted; only later same-day posts stay in **Ready** until boosted.
 
 ### Boost history on Render
 

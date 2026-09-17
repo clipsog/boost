@@ -16,6 +16,8 @@ services:
         value: "988"
       - key: ZEFAME_ASSUMED_BOOST_HOURS
         value: "8"
+      - key: ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR
+        value: "17"
       - key: BOOST_ADMIN_SECRET
         sync: false
       - key: PYTHON_VERSION

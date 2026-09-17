@@ -23,6 +23,11 @@ QUEUE_LOOKBACK_HOURS = int(os.getenv("ZEFAME_QUEUE_LOOKBACK_HOURS", "24"))
 QUEUE_MIN_AGE_HOURS = int(os.getenv("ZEFAME_QUEUE_MIN_AGE_HOURS", "1"))
 # Posts at least this old are treated as already boosted in queue/history (no new full pack).
 ASSUMED_BOOST_HOURS = float(os.getenv("ZEFAME_ASSUMED_BOOST_HOURS", "8"))
+# Same Eastern calendar day: posts before this hour (24h) count as already boosted.
+_assumed_et_hour = os.getenv("ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR", "17").strip()
+ASSUMED_BOOST_ET_CUTOFF_HOUR: int | None = (
+    int(_assumed_et_hour) if _assumed_et_hour else None
+)
 
 _boost_history_raw = os.getenv("BOOST_HISTORY_PATH", "").strip()
 BOOST_HISTORY_PATH = (
