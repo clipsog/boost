@@ -76,12 +76,29 @@ BOOST_MODE_COMPLETE = "complete"
 VIEWS_BOOST_DELTA = 250
 
 
+def _is_link_duplicate_error(error: str | None) -> bool:
+    if not error:
+        return False
+    lower = error.lower()
+    return "link_duplicate" in lower or ("duplicate" in lower and "link" in lower)
+
+
 def _place(service_id: int, link: str, quantity: int) -> dict:
     try:
         result = client.add_order(service_id, link, quantity=quantity)
         return {"ok": True, "service": service_id, "quantity": quantity, **result}
     except ZefameAPIError as exc:
-        return {"ok": False, "service": service_id, "quantity": quantity, "error": str(exc)}
+        err = str(exc)
+        if _is_link_duplicate_error(err):
+            return {
+                "ok": True,
+                "service": service_id,
+                "quantity": quantity,
+                "duplicate_skipped": True,
+                "note": "Zefame already has an order for this link on this service.",
+                "error": err,
+            }
+        return {"ok": False, "service": service_id, "quantity": quantity, "error": err}
     except Exception as exc:
         err = str(exc)
         if "401" in err or "Unauthorized" in err:
@@ -200,10 +217,15 @@ def _place_views_and_likes(
     if views.get("ok"):
         return views, likes
 
-    cancel_result = _try_cancel_order(likes.get("order"))
-    if cancel_result is not None:
-        likes["cancel_attempt"] = cancel_result
-    likes["rolled_back"] = bool(cancel_result)
+    if _is_link_duplicate_error(views.get("error")):
+        views = {**views, "ok": True, "duplicate_skipped": True}
+        return views, likes
+
+    if likes.get("order") and not likes.get("duplicate_skipped"):
+        cancel_result = _try_cancel_order(likes.get("order"))
+        if cancel_result is not None:
+            likes["cancel_attempt"] = cancel_result
+        likes["rolled_back"] = bool(cancel_result)
     return views, likes
 
 

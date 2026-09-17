@@ -966,6 +966,9 @@
       if (data.service != null && data.quantity != null) {
         html += `Service ${data.service} · qty ${data.quantity}<br>`;
       }
+      if (ok && data.duplicate_skipped) {
+        html += `<span style="color:var(--muted)">Already on Zefame for this service (duplicate skipped).</span><br>`;
+      }
       if (ok && data.order) html += `Order ID: <strong>${data.order}</strong>`;
       if (!ok && data.error) html += `Error: ${data.error}`;
       html += `</div>`;
