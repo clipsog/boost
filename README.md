@@ -78,7 +78,7 @@ ZEFAME_ASSUMED_BOOST_HOURS=8
 ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR=17
 ```
 
-Posts **≥8 hours** old, from a **previous Eastern calendar day**, or **before 5:00 PM ET today** are auto-marked as already boosted; only later same-day posts stay in **Ready** until boosted.
+Posts **≥8 hours** old or from a **previous Eastern calendar day** are auto-marked as already boosted. **After 5:00 PM ET**, same-day posts from earlier that day are marked too; before 5 PM, today’s posts stay in **Ready** (once ≥1h old) until you boost them.
 
 ### Boost history on Render
 

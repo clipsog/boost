@@ -204,9 +204,12 @@ def should_assume_boosted(posted_at: datetime, *, now: datetime | None = None) -
     et_post = posted_at.astimezone(_ET)
     if et_post.date() < et_now.date():
         return True
+    # After cutoff (e.g. 5 PM ET), treat earlier same-day posts as already boosted.
+    # Before cutoff, same-day posts stay in Ready until age ≥ ASSUMED_BOOST_HOURS.
     if (
         ASSUMED_BOOST_ET_CUTOFF_HOUR is not None
         and et_post.date() == et_now.date()
+        and et_now.hour >= ASSUMED_BOOST_ET_CUTOFF_HOUR
         and et_post.hour < ASSUMED_BOOST_ET_CUTOFF_HOUR
     ):
         return True

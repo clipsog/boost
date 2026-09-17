@@ -1184,7 +1184,7 @@
       const etCutoff = data.assumed_boost_et_cutoff_hour;
       let ageRule = "";
       if (assumedH != null) {
-        ageRule = ` · ≥${assumedH}h old or before ${etCutoff ?? 17}:00 ET today → boosted`;
+        ageRule = ` · ≥${assumedH}h old → boosted; after ${etCutoff ?? 17}:00 ET, earlier today too`;
       }
       queueStatus.textContent =
         `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted${historyNote}${ageRule}`;
