@@ -318,18 +318,93 @@ def _parse_likes_quantity(raw: object) -> int | None:
     return quantity
 
 
+def _full_pack_views_quantity(current_likes: int) -> int:
+    if current_likes == 0:
+        return FULL_VIEWS_LOW
+    if current_likes <= 7:
+        return FULL_VIEWS_MID
+    if current_likes < 20:
+        return FULL_VIEWS_HIGH
+    return FULL_VIEWS_ULTRA
+
+
 def _full_pack_quantities(current_likes: int) -> tuple[int, int]:
     """Pick views from the video's current like tier; likes are always random 10–14."""
     likes = random.randint(FULL_LIKES_MIN, FULL_LIKES_MAX)
-    if current_likes == 0:
-        views = FULL_VIEWS_LOW
-    elif current_likes <= 7:
-        views = FULL_VIEWS_MID
-    elif current_likes < 20:
-        views = FULL_VIEWS_HIGH
-    else:
-        views = FULL_VIEWS_ULTRA
-    return views, likes
+    return _full_pack_views_quantity(current_likes), likes
+
+
+def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
+    """Estimate full-pack cost for every ready queue item (likes qty is a range)."""
+    count = len(ready)
+    if count == 0:
+        try:
+            balance_raw = client.balance()
+            balance = float(balance_raw["balance"])
+            currency = balance_raw.get("currency") or "EUR"
+        except Exception:
+            balance = None
+            currency = "EUR"
+        return {
+            "ok": True,
+            "count": 0,
+            "balance": balance,
+            "currency": currency,
+            "cost_min": 0.0,
+            "cost_max": 0.0,
+            "sufficient": True,
+            "shortfall": 0.0,
+            "views_total": 0,
+            "likes_min_total": 0,
+            "likes_max_total": 0,
+            "views_service": VIEWS_SERVICE_ID,
+            "likes_service": LIKES_SERVICE_ID,
+        }
+
+    try:
+        balance_raw = client.balance()
+        balance = float(balance_raw["balance"])
+        currency = balance_raw.get("currency") or "EUR"
+    except Exception as exc:
+        return {"ok": False, "error": f"Could not load balance: {exc}"}
+
+    try:
+        cost_min = 0.0
+        cost_max = 0.0
+        views_total = 0
+        for item in ready:
+            current_likes = int(item.get("likes") or 0)
+            views_qty = _full_pack_views_quantity(current_likes)
+            views_total += views_qty
+            cost_min += _order_cost(VIEWS_SERVICE_ID, views_qty) + _order_cost(
+                LIKES_SERVICE_ID, FULL_LIKES_MIN
+            )
+            cost_max += _order_cost(VIEWS_SERVICE_ID, views_qty) + _order_cost(
+                LIKES_SERVICE_ID, FULL_LIKES_MAX
+            )
+    except ZefameAPIError as exc:
+        return {"ok": False, "error": str(exc)}
+
+    cost_min = round(cost_min, 4)
+    cost_max = round(cost_max, 4)
+    shortfall = round(max(0.0, cost_max - balance), 4)
+    sufficient = balance + 1e-9 >= cost_max
+
+    return {
+        "ok": True,
+        "count": count,
+        "balance": balance,
+        "currency": currency,
+        "cost_min": cost_min,
+        "cost_max": cost_max,
+        "sufficient": sufficient,
+        "shortfall": shortfall,
+        "views_total": views_total,
+        "likes_min_total": count * FULL_LIKES_MIN,
+        "likes_max_total": count * FULL_LIKES_MAX,
+        "views_service": VIEWS_SERVICE_ID,
+        "likes_service": LIKES_SERVICE_ID,
+    }
 
 
 def _already_boosted_payload(video_id: str) -> dict:
@@ -645,6 +720,7 @@ def queue():
     payload = build_queue(force_refresh=force_refresh)
     if payload.get("ok"):
         payload["history"] = history_stats()
+        payload["boost_all_estimate"] = _estimate_boost_all_ready(payload.get("ready") or [])
     status = 200 if payload.get("ok") else 502
     return jsonify(payload), status
 

@@ -319,6 +319,16 @@
     .queue-actions button.boost-all:hover:not(:disabled) {
       filter: brightness(1.08);
     }
+    .boost-all-estimate {
+      margin-top: -6px;
+      margin-bottom: 14px;
+    }
+    .boost-all-estimate.insufficient {
+      color: var(--err);
+    }
+    .boost-all-estimate.sufficient strong {
+      color: var(--ok);
+    }
     .queue-group-title {
       font-size: 0.78rem;
       text-transform: uppercase;
@@ -443,6 +453,7 @@
         waits {{ queue_min_age_hours }}h after post · full pack only
       </p>
       <div id="queueStatus" class="queue-meta">Loading queue…</div>
+      <div id="boostAllEstimate" class="queue-meta boost-all-estimate hidden"></div>
       <div id="queueReadyGroup" class="hidden">
         <div class="queue-group-title">Ready for approval</div>
         <div class="queue-list" id="queueReadyList"></div>
@@ -1089,6 +1100,8 @@
     const queueError = document.getElementById("queueError");
     const refreshQueueBtn = document.getElementById("refreshQueueBtn");
     const boostAllReadyBtn = document.getElementById("boostAllReadyBtn");
+    const boostAllEstimateEl = document.getElementById("boostAllEstimate");
+    let lastBoostAllEstimate = null;
     let queueRefreshTimer = null;
     let boostAllRunning = false;
     let lastReadyItems = [];
@@ -1108,6 +1121,59 @@
       const hrs = Math.floor(mins / 60);
       const rem = mins % 60;
       return rem ? `${hrs}h ${rem}m` : `${hrs}h`;
+    }
+
+    function formatEurAmount(amount) {
+      const n = Number(amount);
+      if (!Number.isFinite(n)) return "—";
+      const digits = n > 0 && n < 0.01 ? 4 : 2;
+      return n.toFixed(digits);
+    }
+
+    function formatBoostAllCostRange(est) {
+      if (!est || !est.ok || !est.count) return "";
+      const cur = est.currency || "EUR";
+      const min = formatEurAmount(est.cost_min);
+      const max = formatEurAmount(est.cost_max);
+      return min === max ? `~${min} ${cur}` : `~${min}–${max} ${cur}`;
+    }
+
+    function renderBoostAllEstimate(est, readyCount) {
+      lastBoostAllEstimate = est && est.ok ? est : null;
+      if (!boostAllEstimateEl) return;
+      if (!readyCount || !est || !est.ok) {
+        boostAllEstimateEl.classList.add("hidden");
+        boostAllEstimateEl.textContent = "";
+        boostAllEstimateEl.classList.remove("insufficient", "sufficient");
+        return;
+      }
+
+      const cur = est.currency || "EUR";
+      const costLine = formatBoostAllCostRange(est);
+      const balanceLine = est.balance != null
+        ? `Balance: <strong>${formatEurAmount(est.balance)} ${cur}</strong>`
+        : "Balance: unavailable";
+      let statusLine;
+      if (est.balance == null) {
+        statusLine = "Could not verify balance.";
+        boostAllEstimateEl.classList.remove("sufficient", "insufficient");
+      } else if (est.sufficient) {
+        statusLine = "<strong>Enough balance</strong> for worst-case cost.";
+        boostAllEstimateEl.classList.add("sufficient");
+        boostAllEstimateEl.classList.remove("insufficient");
+      } else {
+        statusLine =
+          `Need ~${formatEurAmount(est.shortfall)} ${cur} more — <strong>not enough</strong> to boost all.`;
+        boostAllEstimateEl.classList.add("insufficient");
+        boostAllEstimateEl.classList.remove("sufficient");
+      }
+
+      boostAllEstimateEl.innerHTML =
+        `Boost all (${readyCount}): ${costLine} · ` +
+        `${est.views_total.toLocaleString()} views (${est.views_service}) + ` +
+        `${est.likes_min_total}–${est.likes_max_total} likes (${est.likes_service}) · ` +
+        `${balanceLine} · ${statusLine}`;
+      boostAllEstimateEl.classList.remove("hidden");
     }
 
     function queueBoostPayload(item) {
@@ -1189,11 +1255,23 @@
       queueStatus.textContent =
         `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted${historyNote}${ageRule}`;
 
+      renderBoostAllEstimate(data.boost_all_estimate, ready.length);
+
       boostAllReadyBtn.classList.toggle("hidden", ready.length === 0);
-      boostAllReadyBtn.disabled = boostAllRunning || ready.length === 0;
+      const insufficient =
+        ready.length > 0 &&
+        data.boost_all_estimate?.ok &&
+        data.boost_all_estimate.balance != null &&
+        !data.boost_all_estimate.sufficient;
+      boostAllReadyBtn.disabled = boostAllRunning || ready.length === 0 || insufficient;
       boostAllReadyBtn.textContent = ready.length
         ? `Boost all ready (${ready.length})`
         : "Boost all ready";
+      if (insufficient) {
+        boostAllReadyBtn.title = "Top up Zefame balance before boosting all ready videos.";
+      } else {
+        boostAllReadyBtn.title = "";
+      }
 
       queueReadyList.innerHTML = ready.map((item) => renderQueueItem(item, { approvable: true })).join("");
       queueWaitingList.innerHTML = waiting.map((item) => renderQueueItem(item, { approvable: false })).join("");
@@ -1266,8 +1344,33 @@
     async function boostAllReady() {
       const items = [...lastReadyItems];
       if (!items.length || boostAllRunning) return;
+      const est = lastBoostAllEstimate;
+      if (
+        est &&
+        est.balance != null &&
+        !est.sufficient
+      ) {
+        alert(
+          `Not enough balance to boost all ${items.length} videos.\n\n` +
+            `Estimated cost (worst case): ${formatBoostAllCostRange(est)}\n` +
+            `Your balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}\n` +
+            `Short by ~${formatEurAmount(est.shortfall)} ${est.currency || "EUR"}.`
+        );
+        return;
+      }
       const label = items.length === 1 ? "1 video" : `${items.length} videos`;
-      if (!confirm(`Send full boost pack to ${label}? Orders run one at a time.`)) return;
+      let confirmMsg = `Send full boost pack to ${label}?`;
+      if (est && est.ok) {
+        confirmMsg += `\n\nEstimated cost: ${formatBoostAllCostRange(est)} (worst case uses ${est.likes_max_total} likes total).`;
+        if (est.balance != null) {
+          confirmMsg += `\nYour balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}.`;
+          confirmMsg += est.sufficient
+            ? "\nBalance looks sufficient."
+            : "\nBalance may not cover all orders.";
+        }
+      }
+      confirmMsg += "\n\nOrders run one at a time.";
+      if (!confirm(confirmMsg)) return;
 
       boostAllRunning = true;
       boostAllReadyBtn.disabled = true;
