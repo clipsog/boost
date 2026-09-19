@@ -1130,12 +1130,11 @@
       return n.toFixed(digits);
     }
 
-    function formatBoostAllCostRange(est) {
+    function formatBoostAllCost(est) {
       if (!est || !est.ok || !est.count) return "";
       const cur = est.currency || "EUR";
-      const min = formatEurAmount(est.cost_min);
-      const max = formatEurAmount(est.cost_max);
-      return min === max ? `~${min} ${cur}` : `~${min}–${max} ${cur}`;
+      const amount = est.cost ?? est.cost_min;
+      return `${formatEurAmount(amount)} ${cur}`;
     }
 
     function renderBoostAllEstimate(est, readyCount) {
@@ -1149,7 +1148,7 @@
       }
 
       const cur = est.currency || "EUR";
-      const costLine = formatBoostAllCostRange(est);
+      const costLine = formatBoostAllCost(est);
       const balanceLine = est.balance != null
         ? `Balance: <strong>${formatEurAmount(est.balance)} ${cur}</strong>`
         : "Balance: unavailable";
@@ -1158,7 +1157,7 @@
         statusLine = "Could not verify balance.";
         boostAllEstimateEl.classList.remove("sufficient", "insufficient");
       } else if (est.sufficient) {
-        statusLine = "<strong>Enough balance</strong> for worst-case cost.";
+        statusLine = "<strong>Enough balance</strong> for this batch.";
         boostAllEstimateEl.classList.add("sufficient");
         boostAllEstimateEl.classList.remove("insufficient");
       } else {
@@ -1171,7 +1170,7 @@
       boostAllEstimateEl.innerHTML =
         `Boost all (${readyCount}): ${costLine} · ` +
         `${est.views_total.toLocaleString()} views (${est.views_service}) + ` +
-        `${est.likes_min_total}–${est.likes_max_total} likes (${est.likes_service}) · ` +
+        `${est.likes_total.toLocaleString()} likes (${est.likes_service}) · ` +
         `${balanceLine} · ${statusLine}`;
       boostAllEstimateEl.classList.remove("hidden");
     }
@@ -1209,6 +1208,10 @@
       const badge = approvable
         ? `<span class="queue-badge ready">Ready</span>`
         : `<span class="queue-badge waiting">Ready in ${formatWait(item.seconds_until_ready || 0)}</span>`;
+      const pack = item.boost_pack;
+      const packLine = pack
+        ? `<br>Full pack: ${formatCount(pack.views)} views + ${formatCount(pack.likes)} likes`
+        : "";
       const action = approvable
         ? `<button type="button" class="queue-approve" data-queue-url="${item.url}" data-queue-video-id="${item.video_id}" data-queue-likes="${item.likes}" data-queue-views="${item.views}" data-queue-posted-at="${item.posted_at || ""}" data-queue-title="${(item.title || "").replace(/"/g, "&quot;")}">Approve boost</button>`
         : "";
@@ -1219,7 +1222,7 @@
             <div class="queue-title">${item.title || "Untitled video"}</div>
             <div class="queue-stats">
               Posted ${formatPostedAt(item.posted_at)}<br>
-              ${formatCount(item.views)} views · ${formatCount(item.likes)} likes
+              ${formatCount(item.views)} views · ${formatCount(item.likes)} likes${packLine}
             </div>
             ${badge}
           </div>
@@ -1352,7 +1355,7 @@
       ) {
         alert(
           `Not enough balance to boost all ${items.length} videos.\n\n` +
-            `Estimated cost (worst case): ${formatBoostAllCostRange(est)}\n` +
+            `Estimated cost: ${formatBoostAllCost(est)}\n` +
             `Your balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}\n` +
             `Short by ~${formatEurAmount(est.shortfall)} ${est.currency || "EUR"}.`
         );
@@ -1361,7 +1364,7 @@
       const label = items.length === 1 ? "1 video" : `${items.length} videos`;
       let confirmMsg = `Send full boost pack to ${label}?`;
       if (est && est.ok) {
-        confirmMsg += `\n\nEstimated cost: ${formatBoostAllCostRange(est)} (worst case uses ${est.likes_max_total} likes total).`;
+        confirmMsg += `\n\nEstimated cost: ${formatBoostAllCost(est)} (${est.views_total.toLocaleString()} views + ${est.likes_total.toLocaleString()} likes).`;
         if (est.balance != null) {
           confirmMsg += `\nYour balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}.`;
           confirmMsg += est.sufficient
