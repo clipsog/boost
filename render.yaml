@@ -13,7 +13,7 @@ services:
       - key: ZEFAME_VIEWS_SERVICE
         value: "953"
       - key: ZEFAME_LIKES_SERVICE
-        value: "988"
+        value: "1086"
       - key: ZEFAME_ASSUMED_BOOST_HOURS
         value: "8"
       - key: ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR
