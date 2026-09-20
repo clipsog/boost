@@ -35,6 +35,8 @@ def _video_payload(raw: dict[str, Any], *, status: str, now: datetime) -> dict[s
         "eligible_at": eligible_at.isoformat(),
         "already_boosted": is_full_boosted(raw["video_id"]),
         "boosted_at": entry.get("boosted_at"),
+        "assumed_boosted": bool(entry.get("assumed_boosted")),
+        "has_zefame_orders": bool(entry.get("views_order") or entry.get("likes_order")),
     }
     if status == "waiting":
         item["seconds_until_ready"] = max(0, int((eligible_at - now).total_seconds()))

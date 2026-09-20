@@ -10,11 +10,13 @@ from typing import Any
 from config import (
     ASSUMED_BOOST_ET_CUTOFF_HOUR,
     ASSUMED_BOOST_HOURS,
+    ASSUMED_BOOST_MORNING_ET_HOUR,
     BOOST_HISTORY_PATH,
     BOOST_HISTORY_SEED_PATH,
     INFER_BOOST_LIKES_MIN,
     INFER_BOOST_MIN_AGE_HOURS,
     INFER_BOOST_VIEWS_MIN,
+    QUEUE_MIN_AGE_HOURS,
 )
 from zoneinfo import ZoneInfo
 
@@ -197,16 +199,34 @@ def should_assume_boosted(posted_at: datetime, *, now: datetime | None = None) -
     et_post = posted_at.astimezone(_ET)
     if et_post.date() < et_now.date():
         return True
-    # After cutoff (e.g. 5 PM ET), treat earlier same-day posts as already boosted.
-    # Before cutoff, same-day posts stay in Ready until age ≥ ASSUMED_BOOST_HOURS.
+    # After cutoff (e.g. 5 PM ET), auto-mark same-day *morning* posts only (not afternoon).
     if (
         ASSUMED_BOOST_ET_CUTOFF_HOUR is not None
+        and ASSUMED_BOOST_MORNING_ET_HOUR is not None
         and et_post.date() == et_now.date()
         and et_now.hour >= ASSUMED_BOOST_ET_CUTOFF_HOUR
-        and et_post.hour < ASSUMED_BOOST_ET_CUTOFF_HOUR
+        and et_post.hour < ASSUMED_BOOST_MORNING_ET_HOUR
+        and now_dt - posted_at >= timedelta(hours=QUEUE_MIN_AGE_HOURS)
     ):
         return True
     return False
+
+
+def clear_assumed_boost(video_id: str) -> bool:
+    """Remove a mistaken assumed-boost history row (no Zefame orders)."""
+    data = _load()
+    entry = data.get(str(video_id))
+    if not entry:
+        return False
+    if _entry_has_real_orders(entry):
+        return False
+    if not entry.get("assumed_boosted") and entry.get("boost_mode") == BOOST_MODE_FULL:
+        # Legacy assumed rows may lack the flag but never got orders.
+        if entry.get("views_order") or entry.get("likes_order"):
+            return False
+    del data[str(video_id)]
+    _save(data)
+    return True
 
 
 def sync_assumed_boosts_for_videos(
@@ -216,6 +236,7 @@ def sync_assumed_boosts_for_videos(
 ) -> dict[str, int]:
     marked = 0
     inferred = 0
+    cleared = 0
     now_dt = now or datetime.now(timezone.utc)
     min_age = timedelta(hours=INFER_BOOST_MIN_AGE_HOURS)
     for raw in videos:
@@ -228,6 +249,11 @@ def sync_assumed_boosts_for_videos(
         vid = str(raw["video_id"])
         url = str(raw.get("url") or f"https://www.tiktok.com/video/{vid}")
         if is_full_boosted(vid):
+            entry = get_boost(vid) or {}
+            if entry.get("assumed_boosted") and not _entry_has_real_orders(entry):
+                if not should_assume_boosted(posted_at, now=now_dt):
+                    if clear_assumed_boost(vid):
+                        cleared += 1
             continue
         if should_assume_boosted(posted_at, now=now_dt):
             if mark_assumed_boosted(vid, url=url, posted_at=str(posted_raw)):
@@ -249,7 +275,7 @@ def sync_assumed_boosts_for_videos(
             )
         ):
             inferred += 1
-    return {"marked": marked, "inferred": inferred}
+    return {"marked": marked, "inferred": inferred, "cleared": cleared}
 
 
 def record_boost(

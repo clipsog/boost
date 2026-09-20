@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
 
 from boost_history import (
+    clear_assumed_boost,
     ensure_history_loaded,
     get_boost,
     has_views_boost,
@@ -774,6 +775,45 @@ def history_import():
     result = merge_history(incoming)
     invalidate_cache()
     return jsonify({"ok": True, **result, "history": history_stats()})
+
+
+@app.post("/api/history/unmark")
+def history_unmark():
+    if not BOOST_ADMIN_SECRET:
+        return jsonify({"ok": False, "error": "History unmark is not configured."}), 503
+
+    body = request.get_json(silent=True) or {}
+    provided = request.headers.get("X-Admin-Secret") or body.get("secret")
+    if provided != BOOST_ADMIN_SECRET:
+        return jsonify({"ok": False, "error": "Unauthorized."}), 401
+
+    raw_ids = body.get("video_ids") or body.get("video_id")
+    if raw_ids is None:
+        return jsonify({"ok": False, "error": "Provide video_ids (array) or video_id."}), 400
+    if isinstance(raw_ids, str):
+        video_ids = [raw_ids]
+    elif isinstance(raw_ids, list):
+        video_ids = [str(v) for v in raw_ids if v]
+    else:
+        return jsonify({"ok": False, "error": "video_ids must be a list."}), 400
+
+    cleared: list[str] = []
+    skipped: list[str] = []
+    for vid in video_ids:
+        if clear_assumed_boost(vid):
+            cleared.append(vid)
+        else:
+            skipped.append(vid)
+    if cleared:
+        invalidate_cache()
+    return jsonify(
+        {
+            "ok": True,
+            "cleared": cleared,
+            "skipped": skipped,
+            "history": history_stats(),
+        }
+    )
 
 
 @app.post("/api/preview")

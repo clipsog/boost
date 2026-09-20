@@ -28,6 +28,11 @@ _assumed_et_hour = os.getenv("ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR", "17").strip(
 ASSUMED_BOOST_ET_CUTOFF_HOUR: int | None = (
     int(_assumed_et_hour) if _assumed_et_hour else None
 )
+# After cutoff, only same-day posts before this ET hour are auto-marked (morning backlog).
+_morning_et_hour = os.getenv("ZEFAME_ASSUMED_BOOST_MORNING_ET_HOUR", "12").strip()
+ASSUMED_BOOST_MORNING_ET_HOUR: int | None = (
+    int(_morning_et_hour) if _morning_et_hour else None
+)
 # If a post is old enough and public stats look like a full pack landed, mark it boosted.
 INFER_BOOST_MIN_AGE_HOURS = float(os.getenv("ZEFAME_INFER_BOOST_MIN_AGE_HOURS", "2"))
 INFER_BOOST_VIEWS_MIN = int(os.getenv("ZEFAME_INFER_BOOST_VIEWS_MIN", "500"))
