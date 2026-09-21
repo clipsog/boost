@@ -144,6 +144,23 @@ def _entry_has_real_orders(entry: dict[str, Any]) -> bool:
     return bool(entry.get("views_order") or entry.get("likes_order"))
 
 
+def _entry_protected_from_clear(entry: dict[str, Any]) -> bool:
+    """History rows that must not be removed by assumed-boost cleanup."""
+    if _entry_has_real_orders(entry):
+        return True
+    if entry.get("zefame_duplicate"):
+        return True
+    if entry.get("views_at_boost") is not None:
+        return True
+    if entry.get("likes_at_boost") is not None:
+        return True
+    return False
+
+
+def _public_stats_look_boosted(views: int, likes: int) -> bool:
+    return views >= INFER_BOOST_VIEWS_MIN and likes >= INFER_BOOST_LIKES_MIN
+
+
 def mark_assumed_boosted(
     video_id: str,
     *,
@@ -218,12 +235,10 @@ def clear_assumed_boost(video_id: str) -> bool:
     entry = data.get(str(video_id))
     if not entry:
         return False
-    if _entry_has_real_orders(entry):
+    if _entry_protected_from_clear(entry):
         return False
-    if not entry.get("assumed_boosted") and entry.get("boost_mode") == BOOST_MODE_FULL:
-        # Legacy assumed rows may lack the flag but never got orders.
-        if entry.get("views_order") or entry.get("likes_order"):
-            return False
+    if not entry.get("assumed_boosted"):
+        return False
     del data[str(video_id)]
     _save(data)
     return True
@@ -248,23 +263,30 @@ def sync_assumed_boosts_for_videos(
             posted_at = posted_at.replace(tzinfo=timezone.utc)
         vid = str(raw["video_id"])
         url = str(raw.get("url") or f"https://www.tiktok.com/video/{vid}")
+        views = int(raw.get("views") or 0)
+        likes = int(raw.get("likes") or 0)
+        stats_look_boosted = _public_stats_look_boosted(views, likes)
+
         if is_full_boosted(vid):
             entry = get_boost(vid) or {}
-            if entry.get("assumed_boosted") and not _entry_has_real_orders(entry):
-                if not should_assume_boosted(posted_at, now=now_dt):
-                    if clear_assumed_boost(vid):
-                        cleared += 1
-            continue
+            if entry.get("assumed_boosted") and not _entry_protected_from_clear(entry):
+                keep = False
+                if entry.get("inferred_from_stats") and stats_look_boosted:
+                    keep = True
+                elif should_assume_boosted(posted_at, now=now_dt):
+                    keep = True
+                if not keep and clear_assumed_boost(vid):
+                    cleared += 1
+            if is_full_boosted(vid):
+                continue
+
         if should_assume_boosted(posted_at, now=now_dt):
             if mark_assumed_boosted(vid, url=url, posted_at=str(posted_raw)):
                 marked += 1
             continue
-        views = int(raw.get("views") or 0)
-        likes = int(raw.get("likes") or 0)
         if (
             now_dt - posted_at >= min_age
-            and views >= INFER_BOOST_VIEWS_MIN
-            and likes >= INFER_BOOST_LIKES_MIN
+            and stats_look_boosted
             and mark_assumed_boosted(
                 vid,
                 url=url,
