@@ -16,6 +16,7 @@ from config import (
     INFER_BOOST_LIKES_MIN,
     INFER_BOOST_MIN_AGE_HOURS,
     INFER_BOOST_VIEWS_MIN,
+    QUEUE_LOOKBACK_HOURS,
     QUEUE_MIN_AGE_HOURS,
 )
 from zoneinfo import ZoneInfo
@@ -204,18 +205,24 @@ def mark_assumed_boosted(
     return True
 
 
-def should_assume_boosted(posted_at: datetime, *, now: datetime | None = None) -> bool:
+def should_assume_boosted(
+    posted_at: datetime,
+    *,
+    now: datetime | None = None,
+    within_queue_window: bool = False,
+) -> bool:
     """True when a post should be treated as already full-boosted in the queue."""
     now_dt = now or datetime.now(timezone.utc)
     if posted_at.tzinfo is None:
         posted_at = posted_at.replace(tzinfo=timezone.utc)
+    # Inside the approval lookback, never hide posts without a real boost or infer-level stats.
+    if within_queue_window:
+        return False
     if posted_at <= now_dt - timedelta(hours=ASSUMED_BOOST_HOURS):
         return True
 
     et_now = now_dt.astimezone(_ET)
     et_post = posted_at.astimezone(_ET)
-    if et_post.date() < et_now.date():
-        return True
     # After cutoff (e.g. 5 PM ET), auto-mark same-day *morning* posts only (not afternoon).
     if (
         ASSUMED_BOOST_ET_CUTOFF_HOUR is not None
@@ -266,6 +273,7 @@ def sync_assumed_boosts_for_videos(
         views = int(raw.get("views") or 0)
         likes = int(raw.get("likes") or 0)
         stats_look_boosted = _public_stats_look_boosted(views, likes)
+        within_queue = (now_dt - posted_at) <= timedelta(hours=QUEUE_LOOKBACK_HOURS)
 
         if is_full_boosted(vid):
             entry = get_boost(vid) or {}
@@ -273,14 +281,18 @@ def sync_assumed_boosts_for_videos(
                 keep = False
                 if entry.get("inferred_from_stats") and stats_look_boosted:
                     keep = True
-                elif should_assume_boosted(posted_at, now=now_dt):
+                elif should_assume_boosted(
+                    posted_at, now=now_dt, within_queue_window=within_queue
+                ):
                     keep = True
                 if not keep and clear_assumed_boost(vid):
                     cleared += 1
             if is_full_boosted(vid):
                 continue
 
-        if should_assume_boosted(posted_at, now=now_dt):
+        if should_assume_boosted(
+            posted_at, now=now_dt, within_queue_window=within_queue
+        ):
             if mark_assumed_boosted(vid, url=url, posted_at=str(posted_raw)):
                 marked += 1
             continue

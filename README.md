@@ -30,7 +30,7 @@ cp .env.example .env   # if needed; edit ZEFAME_API_KEY
 
 ### Approval queue
 
-Automatically loads videos from **@the.clips.og** posted in the last **24 hours** that have **not** been full-boosted yet.
+Automatically loads videos from **@the.clips.og** posted in the last **24 hours** that have **not** been full-boosted yet. Posts inside that window are never auto-hidden by age/calendar rules—only real boost history or high public stats (infer) mark them done.
 
 - Videos younger than **1 hour** appear as *Waiting*
 - After 1 hour, they move to *Ready for approval*

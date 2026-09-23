@@ -11,6 +11,7 @@ from config import (
     ASSUMED_BOOST_ET_CUTOFF_HOUR,
     ASSUMED_BOOST_HOURS,
     QUEUE_LOOKBACK_HOURS,
+    QUEUE_MAX_FETCH,
     QUEUE_MIN_AGE_HOURS,
     QUEUE_PROFILE,
 )
@@ -65,7 +66,7 @@ def build_queue(
     min_age_delta = timedelta(hours=min_age)
 
     try:
-        videos = fetch_profile_videos(profile, since=since)
+        videos = fetch_profile_videos(profile, since=since, max_fetch=QUEUE_MAX_FETCH)
     except ProfileFeedError as exc:
         return {
             "ok": False,
@@ -101,6 +102,7 @@ def build_queue(
         "assumed_boost_et_cutoff_hour": ASSUMED_BOOST_ET_CUTOFF_HOUR,
         "assumed_boost_sync": assumed_sync,
         "fetched_at": now_dt.isoformat(),
+        "feed_video_count": len(videos),
         "counts": {
             "ready": len(ready),
             "waiting": len(waiting),
