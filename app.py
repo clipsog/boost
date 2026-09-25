@@ -84,6 +84,13 @@ def _is_link_duplicate_error(error: str | None) -> bool:
     return "link_duplicate" in lower or ("duplicate" in lower and "link" in lower)
 
 
+def _is_maintenance_error(error: str | None) -> bool:
+    if not error:
+        return False
+    lower = error.lower()
+    return "maintenance" in lower or "not_active" in lower or "service_disabled" in lower
+
+
 def _place(service_id: int, link: str, quantity: int) -> dict:
     try:
         result = client.add_order(service_id, link, quantity=quantity)
@@ -99,7 +106,15 @@ def _place(service_id: int, link: str, quantity: int) -> dict:
                 "note": "Zefame already has an order for this link on this service.",
                 "error": err,
             }
-        return {"ok": False, "service": service_id, "quantity": quantity, "error": err}
+        payload: dict[str, Any] = {
+            "ok": False,
+            "service": service_id,
+            "quantity": quantity,
+            "error": err,
+        }
+        if _is_maintenance_error(err):
+            payload["maintenance"] = True
+        return payload
     except Exception as exc:
         err = str(exc)
         if "401" in err or "Unauthorized" in err:
@@ -111,20 +126,63 @@ def _place(service_id: int, link: str, quantity: int) -> dict:
 
 
 _service_rates: dict[int, float] | None = None
+_services_by_id: dict[int, dict[str, Any]] | None = None
+_services_loaded_at: float = 0.0
+_SERVICES_CACHE_TTL = 300.0
+
+
+def _load_services_by_id() -> dict[int, dict[str, Any]]:
+    global _services_by_id, _services_loaded_at, _service_rates
+    now = time.time()
+    if _services_by_id is not None and now - _services_loaded_at < _SERVICES_CACHE_TTL:
+        return _services_by_id
+    try:
+        _services_by_id = {int(row["service"]): row for row in client.services()}
+        _service_rates = {
+            sid: float(row["rate"]) for sid, row in _services_by_id.items()
+        }
+    except Exception:
+        _services_by_id = {}
+        _service_rates = {}
+    _services_loaded_at = now
+    return _services_by_id
 
 
 def _load_service_rates() -> dict[int, float]:
     global _service_rates
-    if _service_rates is not None:
+    if _service_rates is not None and _services_by_id is not None:
         return _service_rates
-    try:
-        _service_rates = {
-            int(service["service"]): float(service["rate"])
-            for service in client.services()
+    _load_services_by_id()
+    return _service_rates or {}
+
+
+def _service_health(service_id: int) -> dict[str, Any]:
+    """Best-effort availability from Zefame's services API (not the website UI)."""
+    catalog = _load_services_by_id()
+    row = catalog.get(service_id)
+    if not row:
+        return {
+            "service_id": service_id,
+            "listed_in_api": False,
+            "likely_available": False,
+            "message": (
+                "Not listed in Zefame API — often disabled or in maintenance on the website."
+            ),
         }
-    except Exception:
-        _service_rates = {}
-    return _service_rates
+    return {
+        "service_id": service_id,
+        "listed_in_api": True,
+        "likely_available": True,
+        "name": row.get("name"),
+        "category": row.get("category"),
+        "min": row.get("min"),
+        "max": row.get("max"),
+        "rate": row.get("rate"),
+        "message": (
+            "Listed in Zefame API. The website “En maintenance” badge is not returned "
+            "by the API; likes orders can still fail until maintenance ends."
+        ),
+    }
 
 
 def _validate_service_ids() -> None:
@@ -747,6 +805,8 @@ def config_route():
             "ok": True,
             "views_service": VIEWS_SERVICE_ID,
             "likes_service": LIKES_SERVICE_ID,
+            "views_health": _service_health(VIEWS_SERVICE_ID),
+            "likes_health": _service_health(LIKES_SERVICE_ID),
         }
     )
 
