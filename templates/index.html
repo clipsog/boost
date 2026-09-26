@@ -1227,6 +1227,15 @@
       if (routing.zefame_checked_first) {
         html += `<div class="queue-meta" style="margin:0 0 6px">Likes routing checks <strong>Zefame first</strong>, then Boostero if needed.</div>`;
       }
+      if (routing.maintenance_services_label && routing.maintenance_service_ids?.length) {
+        html +=
+          `<div class="queue-meta" style="margin:0 0 6px">` +
+          `Zefame site maintenance: <strong>${routing.maintenance_services_label}</strong>` +
+          (routing.configured_services_in_maintenance?.length
+            ? ` · our services affected: ${routing.configured_services_in_maintenance.map((id) => "#" + id).join(", ")}`
+            : "") +
+          `</div>`;
+      }
       if (routing.decision_summary) {
         html += `<div class="routing-summary">${routing.decision_summary}</div>`;
       }

@@ -188,12 +188,19 @@ def humanize_zefame_detail(detail: str, service_id: int, quantity: int) -> str:
     return detail
 
 
+def _format_maintenance_id_list(ids: list[int] | None) -> str:
+    if not ids:
+        return "none listed"
+    return ", ".join(f"#{sid}" for sid in sorted(ids))
+
+
 def build_likes_decision_flow(
     *,
     quantity: int,
     preference: str,
     zefame_service_id: int,
     boostero_service_id: int,
+    views_service_id: int | None,
     z_ok: bool,
     z_detail: str,
     b_ok: bool,
@@ -201,6 +208,7 @@ def build_likes_decision_flow(
     in_site_maintenance: bool,
     site_maintenance_fetch_ok: bool | None,
     site_maintenance_ids_count: int | None,
+    maintenance_service_ids: list[int] | None,
     active_panel: str | None,
     active_service: int | None,
 ) -> dict[str, Any]:
@@ -208,19 +216,43 @@ def build_likes_decision_flow(
     z_human = humanize_zefame_detail(z_detail, zefame_service_id, quantity)
     steps: list[dict[str, Any]] = []
 
+    maint_ids = sorted(maintenance_service_ids or [])
+    maint_set = set(maint_ids)
+    configured_in_maint: list[int] = []
+    if zefame_service_id in maint_set:
+        configured_in_maint.append(zefame_service_id)
+    if views_service_id is not None and int(views_service_id) in maint_set:
+        configured_in_maint.append(int(views_service_id))
+    maint_list_text = _format_maintenance_id_list(maint_ids)
+
     if pref == "auto":
         fetch_ok = site_maintenance_fetch_ok is not False
-        maint_detail = (
-            f"ZFM_MAINT.ids loaded ({site_maintenance_ids_count or '?'} services). "
-            f"#{zefame_service_id} "
-            + (
-                "is flagged En maintenance on the website."
-                if in_site_maintenance
-                else "is not on the website maintenance list."
-            )
-        )
         if site_maintenance_fetch_ok is False:
-            maint_detail = "Could not refresh zefame.com maintenance list (using last cached data if any)."
+            maint_detail = (
+                "Could not refresh zefame.com maintenance list "
+                "(using last cached data if any)."
+            )
+        else:
+            maint_detail = (
+                f"En maintenance on zefame.com ({site_maintenance_ids_count or len(maint_ids)}): "
+                f"{maint_list_text}."
+            )
+            if configured_in_maint:
+                cfg = ", ".join(f"#{sid}" for sid in configured_in_maint)
+                maint_detail += f" This app uses {cfg} — affected."
+            elif in_site_maintenance:
+                maint_detail += (
+                    f" Likes service #{zefame_service_id} is on the list."
+                )
+            else:
+                maint_detail += (
+                    f" Likes #{zefame_service_id} not on the list"
+                    + (
+                        f"; views #{views_service_id} not on the list."
+                        if views_service_id is not None
+                        else "."
+                    )
+                )
         steps.append(
             {
                 "order": 1,
@@ -271,6 +303,9 @@ def build_likes_decision_flow(
             "zefame_checked_first": True,
             "decision_summary": summary,
             "decision_steps": steps,
+            "maintenance_service_ids": maint_ids,
+            "configured_services_in_maintenance": configured_in_maint,
+            "maintenance_services_label": maint_list_text,
         }
 
     if pref == "zefame":
@@ -292,6 +327,9 @@ def build_likes_decision_flow(
             "zefame_checked_first": False,
             "decision_summary": f"Likes: forced Zefame #{zefame_service_id} (LIKES_PANEL=zefame).",
             "decision_steps": steps,
+            "maintenance_service_ids": maint_ids,
+            "configured_services_in_maintenance": configured_in_maint,
+            "maintenance_services_label": maint_list_text,
         }
 
     steps = [
@@ -316,6 +354,9 @@ def build_likes_decision_flow(
         "zefame_checked_first": False,
         "decision_summary": f"Likes: forced Boostero #{boostero_service_id} (LIKES_PANEL=boostero).",
         "decision_steps": steps,
+        "maintenance_service_ids": maint_ids,
+        "configured_services_in_maintenance": configured_in_maint,
+        "maintenance_services_label": maint_list_text,
     }
 
 
@@ -330,9 +371,11 @@ def likes_routing_status(
     boostero_configured: bool,
     zefame_site_maintenance_ids: frozenset[int] | set[int] | None = None,
     site_maintenance_meta: dict[str, Any] | None = None,
+    views_service_id: int | None = None,
 ) -> dict[str, Any]:
     maint = zefame_site_maintenance_ids or frozenset()
     meta = site_maintenance_meta or {}
+    maint_ids_list = sorted(meta.get("maintenance_service_ids") or maint)
     z_ok, z_detail = zefame_service_usable(
         zefame_catalog,
         zefame_service_id,
@@ -369,6 +412,7 @@ def likes_routing_status(
         preference=preference,
         zefame_service_id=zefame_service_id,
         boostero_service_id=boostero_service_id,
+        views_service_id=views_service_id,
         z_ok=z_ok,
         z_detail=z_detail,
         b_ok=b_ok,
@@ -376,6 +420,7 @@ def likes_routing_status(
         in_site_maintenance=in_site_maint,
         site_maintenance_fetch_ok=meta.get("fetch_ok"),
         site_maintenance_ids_count=meta.get("maintenance_ids_count"),
+        maintenance_service_ids=maint_ids_list,
         active_panel=active_panel,
         active_service=active_service,
     )

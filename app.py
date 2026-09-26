@@ -174,6 +174,7 @@ def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
         boostero_configured=boostero_ok,
         zefame_site_maintenance_ids=maint,
         site_maintenance_meta=site_meta,
+        views_service_id=VIEWS_SERVICE_ID,
     )
     snap["zefame_site_maintenance_status"] = site_meta
     return snap

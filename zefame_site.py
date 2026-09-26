@@ -83,6 +83,7 @@ def maintenance_status(service_id: int) -> dict[str, Any]:
     ids = get_zefame_maintenance_ids()
     meta = _cache_meta or {}
     in_maintenance = int(service_id) in ids
+    sorted_ids = sorted(ids)
     return {
         "service_id": int(service_id),
         "site_maintenance": in_maintenance,
@@ -91,4 +92,5 @@ def maintenance_status(service_id: int) -> dict[str, Any]:
         "fetch_error": meta.get("error"),
         "stale": bool(meta.get("stale")),
         "maintenance_ids_count": len(ids),
+        "maintenance_service_ids": sorted_ids,
     }
