@@ -434,9 +434,11 @@
     <h1>Video boost</h1>
     <p class="sub" id="pageSub">Approve boosts from your profile queue, or paste a URL manually.</p>
 
-    {% if balance %}
+    {% if balances.zefame or balances.boostero %}
     <p class="balance" id="balanceLine">
-      Balance: <strong>{{ balance.balance }} {{ balance.currency }}</strong>
+      {% if balances.zefame %}Zefame: <strong>{{ balances.zefame.balance }} {{ balances.zefame.currency }}</strong>{% endif %}
+      {% if balances.zefame and balances.boostero %} · {% endif %}
+      {% if balances.boostero %}Boostero: <strong>{{ balances.boostero.balance }} {{ balances.boostero.currency }}</strong>{% endif %}
     </p>
     {% endif %}
 
@@ -451,6 +453,15 @@
       <p class="queue-meta">
         @{{ queue_profile }} · last {{ queue_lookback_hours }}h ·
         waits {{ queue_min_age_hours }}h after post · full pack only
+        {% if likes_routing and likes_routing.active_panel %}
+        · likes auto → <strong>{{ likes_routing.active_panel }}</strong>
+        #{{ likes_routing.active_service }}
+        {% if likes_routing.zefame_site_maintenance %}
+        (Zefame #{{ likes_routing.zefame_service }}: En maintenance on site)
+        {% elif likes_routing.preference == 'auto' and not likes_routing.zefame_eligible %}
+        (Zefame #{{ likes_routing.zefame_service }}: {{ likes_routing.zefame_detail }})
+        {% endif %}
+        {% endif %}
       </p>
       <div id="queueStatus" class="queue-meta">Loading queue…</div>
       <div id="boostAllEstimate" class="queue-meta boost-all-estimate hidden"></div>
@@ -564,6 +575,27 @@
     const doneVideo = document.getElementById("doneVideo");
     const pageSub = document.getElementById("pageSub");
     const balanceLine = document.getElementById("balanceLine");
+
+    function formatPanelBalance(raw, label) {
+      if (!raw || raw.balance == null) return `${label}: unavailable`;
+      return `${label}: <strong>${raw.balance} ${raw.currency || ""}</strong>`.trim();
+    }
+
+    function updateBalanceLine(data) {
+      if (!balanceLine || !data) return;
+      if (data.balances) {
+        const parts = [];
+        if (data.balances.zefame) parts.push(formatPanelBalance(data.balances.zefame, "Zefame"));
+        if (data.balances.boostero) parts.push(formatPanelBalance(data.balances.boostero, "Boostero"));
+        if (parts.length) {
+          balanceLine.innerHTML = parts.join(" · ");
+          return;
+        }
+      }
+      if (data.balance) {
+        balanceLine.innerHTML = formatPanelBalance(data.balance, "Zefame");
+      }
+    }
     const urlInput = document.getElementById("url");
     const videoStats = document.getElementById("videoStats");
     const viewsService = {{ views_service }};
@@ -838,10 +870,7 @@
           You can send more ${label} to this same video.
         </div>`;
       setBoostAllowed(true);
-      if (data.balance && balanceLine) {
-        balanceLine.innerHTML =
-          `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
-      }
+      updateBalanceLine(data);
       const url = urlInput.value.trim();
       if (url.length >= 12) {
         setTimeout(() => fetchVideoStats(url), 1200);
@@ -1064,10 +1093,7 @@
             return;
           }
           if (data.mode === "lower" || data.mode === "full") {
-            if (data.balance && balanceLine) {
-              balanceLine.innerHTML =
-                `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
-            }
+            updateBalanceLine(data);
             showBoostSuccess(data);
             return;
           }
@@ -1130,11 +1156,34 @@
       return n.toFixed(digits);
     }
 
+    function formatLikesRoutingNote(est) {
+      const r = est && est.likes_routing;
+      if (!r || !r.active_panel) return "";
+      const name = r.active_panel === "zefame" ? "Zefame" : "Boostero";
+      let note = `Likes → ${name} #${r.active_service}`;
+      if (r.zefame_site_maintenance) {
+        note += " (Zefame En maintenance on zefame.com → Boostero)";
+      } else if (r.preference === "auto" && !r.zefame_eligible && r.active_panel === "boostero") {
+        note += ` (Zefame #${r.zefame_service}: ${r.zefame_detail})`;
+      }
+      return note;
+    }
+
     function formatBoostAllCost(est) {
       if (!est || !est.ok || !est.count) return "";
-      const cur = est.currency || "EUR";
-      const amount = est.cost ?? est.cost_min;
-      return `${formatEurAmount(amount)} ${cur}`;
+      const zCur = est.currency || "EUR";
+      const bCur = est.currency_boostero || "USD";
+      const zTotal = (est.cost_views || 0) + (est.cost_likes_zefame || 0);
+      const bLikes = est.cost_likes_boostero || 0;
+      let line = `Zefame ~${formatEurAmount(zTotal)} ${zCur}`;
+      if (bLikes > 0) {
+        line += ` + Boostero ~${formatEurAmount(bLikes)} ${bCur} likes`;
+      } else if (est.cost_likes_zefame > 0) {
+        line += " (views + likes)";
+      } else if (est.cost_views != null) {
+        line += " (views)";
+      }
+      return line;
     }
 
     function renderBoostAllEstimate(est, readyCount) {
@@ -1147,31 +1196,63 @@
         return;
       }
 
-      const cur = est.currency || "EUR";
+      const zCur = est.currency || "EUR";
+      const bCur = est.currency_boostero || "USD";
+      const bLikes = est.cost_likes_boostero || 0;
       const costLine = formatBoostAllCost(est);
-      const balanceLine = est.balance != null
-        ? `Balance: <strong>${formatEurAmount(est.balance)} ${cur}</strong>`
-        : "Balance: unavailable";
+      const zBal =
+        est.balance != null
+          ? `Zefame: <strong>${formatEurAmount(est.balance)} ${zCur}</strong>`
+          : "Zefame: unavailable";
+      const bBal =
+        est.balance_boostero != null
+          ? `Boostero: <strong>${formatEurAmount(est.balance_boostero)} ${bCur}</strong>`
+          : "Boostero: unavailable";
       let statusLine;
-      if (est.balance == null) {
-        statusLine = "Could not verify balance.";
+      const canVerify =
+        est.balance != null || est.balance_boostero != null;
+      if (!canVerify) {
+        statusLine = "Could not verify panel balances.";
         boostAllEstimateEl.classList.remove("sufficient", "insufficient");
       } else if (est.sufficient) {
-        statusLine = "<strong>Enough balance</strong> for this batch.";
+        statusLine =
+          bLikes > 0
+            ? "<strong>Enough balance</strong> on Zefame and Boostero for this batch."
+            : "<strong>Enough Zefame balance</strong> for views and likes.";
         boostAllEstimateEl.classList.add("sufficient");
         boostAllEstimateEl.classList.remove("insufficient");
       } else {
-        statusLine =
-          `Need ~${formatEurAmount(est.shortfall)} ${cur} more — <strong>not enough</strong> to boost all.`;
+        const parts = [];
+        if (est.sufficient_zefame === false && est.shortfall_zefame > 0) {
+          parts.push(`~${formatEurAmount(est.shortfall_zefame)} ${zCur} on Zefame (views + likes)`);
+        }
+        if (est.sufficient_boostero === false && est.shortfall_boostero > 0) {
+          parts.push(`~${formatEurAmount(est.shortfall_boostero)} ${bCur} on Boostero (likes)`);
+        }
+        statusLine = parts.length
+          ? `Need ${parts.join(" and ")} — <strong>not enough</strong> to boost all.`
+          : "<strong>Not enough</strong> balance on one or both panels.";
         boostAllEstimateEl.classList.add("insufficient");
         boostAllEstimateEl.classList.remove("sufficient");
       }
 
+      const likesPanel =
+        est.likes_panel === "zefame"
+          ? `Zefame ${est.likes_service || ""}`
+          : est.likes_panel === "boostero"
+            ? `Boostero ${est.likes_service || ""}`
+            : est.likes_panel === "mixed"
+              ? "mixed panels"
+              : formatLikesRoutingNote(est) || "auto";
+      const routingNote = formatLikesRoutingNote(est);
       boostAllEstimateEl.innerHTML =
         `Boost all (${readyCount}): ${costLine} · ` +
-        `${est.views_total.toLocaleString()} views (${est.views_service}) + ` +
-        `${est.likes_total.toLocaleString()} likes (${est.likes_service}) · ` +
-        `${balanceLine} · ${statusLine}`;
+        `${est.views_total.toLocaleString()} views (Zefame ${est.views_service}) + ` +
+        `${est.likes_total.toLocaleString()} likes (${likesPanel})` +
+        (routingNote ? ` · ${routingNote}` : "") +
+        ` · ${zBal}` +
+        (bLikes > 0 || est.balance_boostero != null ? ` · ${bBal}` : "") +
+        ` · ${statusLine}`;
       boostAllEstimateEl.classList.remove("hidden");
     }
 
@@ -1264,14 +1345,14 @@
       const insufficient =
         ready.length > 0 &&
         data.boost_all_estimate?.ok &&
-        data.boost_all_estimate.balance != null &&
         !data.boost_all_estimate.sufficient;
       boostAllReadyBtn.disabled = boostAllRunning || ready.length === 0 || insufficient;
       boostAllReadyBtn.textContent = ready.length
         ? `Boost all ready (${ready.length})`
         : "Boost all ready";
       if (insufficient) {
-        boostAllReadyBtn.title = "Top up Zefame balance before boosting all ready videos.";
+        boostAllReadyBtn.title =
+          "Top up Zefame (views) and/or Boostero (likes) before boosting all ready videos.";
       } else {
         boostAllReadyBtn.title = "";
       }
@@ -1327,10 +1408,7 @@
         });
         const data = await res.json();
         if (data.ok) {
-          if (data.balance && balanceLine) {
-            balanceLine.innerHTML =
-              `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
-          }
+          updateBalanceLine(data);
           await loadQueue(true);
           return;
         }
@@ -1348,28 +1426,39 @@
       const items = [...lastReadyItems];
       if (!items.length || boostAllRunning) return;
       const est = lastBoostAllEstimate;
-      if (
-        est &&
-        est.balance != null &&
-        !est.sufficient
-      ) {
-        alert(
+      if (est && !est.sufficient) {
+        let msg =
           `Not enough balance to boost all ${items.length} videos.\n\n` +
-            `Estimated cost: ${formatBoostAllCost(est)}\n` +
-            `Your balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}\n` +
-            `Short by ~${formatEurAmount(est.shortfall)} ${est.currency || "EUR"}.`
-        );
+          `Estimated cost: ${formatBoostAllCost(est)}\n`;
+        if (est.balance != null) {
+          msg += `Zefame balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}\n`;
+        }
+        if (est.balance_boostero != null) {
+          msg += `Boostero balance: ${formatEurAmount(est.balance_boostero)} ${est.currency_boostero || "USD"}\n`;
+        }
+        if (est.shortfall_zefame > 0) {
+          msg += `Short on Zefame: ~${formatEurAmount(est.shortfall_zefame)} ${est.currency || "EUR"}\n`;
+        }
+        if (est.shortfall_boostero > 0) {
+          msg += `Short on Boostero: ~${formatEurAmount(est.shortfall_boostero)} ${est.currency_boostero || "USD"}\n`;
+        }
+        alert(msg.trim());
         return;
       }
       const label = items.length === 1 ? "1 video" : `${items.length} videos`;
       let confirmMsg = `Send full boost pack to ${label}?`;
       if (est && est.ok) {
         confirmMsg += `\n\nEstimated cost: ${formatBoostAllCost(est)} (${est.views_total.toLocaleString()} views + ${est.likes_total.toLocaleString()} likes).`;
-        if (est.balance != null) {
-          confirmMsg += `\nYour balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}.`;
+        if (est.balance != null || est.balance_boostero != null) {
+          if (est.balance != null) {
+            confirmMsg += `\nZefame balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}.`;
+          }
+          if (est.balance_boostero != null) {
+            confirmMsg += `\nBoostero balance: ${formatEurAmount(est.balance_boostero)} ${est.currency_boostero || "USD"}.`;
+          }
           confirmMsg += est.sufficient
-            ? "\nBalance looks sufficient."
-            : "\nBalance may not cover all orders.";
+            ? "\nBoth panel balances look sufficient."
+            : "\nOne or both panel balances may not cover all orders.";
         }
       }
       confirmMsg += "\n\nOrders run one at a time.";
@@ -1401,10 +1490,7 @@
           const data = await res.json();
           if (data.ok) {
             ok += 1;
-            if (data.balance && balanceLine) {
-              balanceLine.innerHTML =
-                `Balance: <strong>${data.balance.balance} ${data.balance.currency}</strong>`;
-            }
+            updateBalanceLine(data);
           } else if (res.status === 409 || data.already_boosted) {
             ok += 1;
           } else {

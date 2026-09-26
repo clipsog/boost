@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import random
 import time
 from pathlib import Path
@@ -31,8 +32,10 @@ from boost_queue import (
     queue_item_from_hint,
     stats_from_queue_item,
 )
+from boostero_client import BoosteroAPIError, BoosteroClient
 from config import (
     BOOST_ADMIN_SECRET,
+    BOOSTERO_LIKES_SERVICE_ID,
     FULL_LIKES_MAX,
     FULL_LIKES_MIN,
     FULL_VIEWS_HIGH,
@@ -41,6 +44,7 @@ from config import (
     FULL_VIEWS_ULTRA,
     LIKES_MIN,
     LIKES_ONLY_QUANTITY,
+    LIKES_PANEL,
     LIKES_QUANTITY,
     LIKES_SERVICE_ID,
     LOW_VIEWS_QUANTITY,
@@ -51,14 +55,40 @@ from config import (
     VIEWS_ONLY_QUANTITY,
     VIEWS_QUANTITY,
     VIEWS_SERVICE_ID,
+    ZEFAME_LIKES_SERVICE_ID,
+)
+from likes_routing import (
+    LikesRoute,
+    likes_routing_status,
+    resolve_likes_route,
+    route_for_service_id,
 )
 from tiktok_stats import TikTokStatsError, extract_video_id, get_video_stats
 from zefame_client import ZefameAPIError, ZefameClient
+from zefame_site import get_zefame_maintenance_ids, maintenance_status
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 app = Flask(__name__)
 client = ZefameClient()
+_boostero_client: BoosteroClient | None = None
+_boostero_unconfigured = False
+
+
+def _get_boostero() -> BoosteroClient | None:
+    global _boostero_client, _boostero_unconfigured
+    if _boostero_unconfigured:
+        return None
+    if _boostero_client is None:
+        if not os.environ.get("BOOSTERO_API_KEY", "").strip():
+            _boostero_unconfigured = True
+            return None
+        try:
+            _boostero_client = BoosteroClient()
+        except ValueError:
+            _boostero_unconfigured = True
+            return None
+    return _boostero_client
 
 _seed_result = ensure_history_loaded()
 if _seed_result:
@@ -91,15 +121,108 @@ def _is_maintenance_error(error: str | None) -> bool:
     return "maintenance" in lower or "not_active" in lower or "service_disabled" in lower
 
 
-def _place(service_id: int, link: str, quantity: int) -> dict:
+def _likes_routing_context() -> tuple[
+    dict[int, dict[str, Any]],
+    dict[int, dict[str, Any]],
+    bool,
+    frozenset[int],
+]:
+    _refresh_service_catalogs()
+    zefame_cat = _zefame_services_by_id or {}
+    boostero_cat = _boostero_services_by_id or {}
+    maint = get_zefame_maintenance_ids()
+    return zefame_cat, boostero_cat, _get_boostero() is not None, maint
+
+
+def _resolve_likes_route(quantity: int) -> LikesRoute:
+    zefame_cat, boostero_cat, boostero_ok, maint = _likes_routing_context()
+    return resolve_likes_route(
+        quantity,
+        preference=LIKES_PANEL,
+        zefame_service_id=ZEFAME_LIKES_SERVICE_ID,
+        boostero_service_id=BOOSTERO_LIKES_SERVICE_ID,
+        zefame_catalog=zefame_cat,
+        boostero_catalog=boostero_cat,
+        boostero_configured=boostero_ok,
+        zefame_site_maintenance_ids=maint,
+    )
+
+
+def _resolve_likes_route_explicit(service_id: int, quantity: int) -> LikesRoute:
+    zefame_cat, boostero_cat, _boostero_ok, maint = _likes_routing_context()
+    return route_for_service_id(
+        service_id,
+        quantity,
+        zefame_service_id=ZEFAME_LIKES_SERVICE_ID,
+        boostero_service_id=BOOSTERO_LIKES_SERVICE_ID,
+        zefame_catalog=zefame_cat,
+        boostero_catalog=boostero_cat,
+        zefame_site_maintenance_ids=maint,
+    )
+
+
+def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
+    zefame_cat, boostero_cat, boostero_ok, maint = _likes_routing_context()
+    snap = likes_routing_status(
+        quantity,
+        preference=LIKES_PANEL,
+        zefame_service_id=ZEFAME_LIKES_SERVICE_ID,
+        boostero_service_id=BOOSTERO_LIKES_SERVICE_ID,
+        zefame_catalog=zefame_cat,
+        boostero_catalog=boostero_cat,
+        boostero_configured=boostero_ok,
+        zefame_site_maintenance_ids=maint,
+    )
+    snap["zefame_site_maintenance_status"] = maintenance_status(ZEFAME_LIKES_SERVICE_ID)
+    return snap
+
+
+def _zefame_health_with_site(
+    service_id: int,
+    catalog: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
+    health = _panel_service_health("zefame", service_id, catalog)
+    site = maintenance_status(service_id)
+    health["site_maintenance"] = site["site_maintenance"]
+    health["site_maintenance_source"] = site.get("source")
+    if site["site_maintenance"]:
+        health["likely_available"] = False
+        health["message"] = (
+            "Zefame website marks this service as En maintenance "
+            "(ZFM_MAINT.ids on zefame.com)."
+        )
+    return health
+
+
+def _place_zefame(service_id: int, link: str, quantity: int) -> dict:
+    if int(service_id) in get_zefame_maintenance_ids():
+        return {
+            "ok": False,
+            "panel": "zefame",
+            "service": service_id,
+            "quantity": quantity,
+            "maintenance": True,
+            "site_maintenance": True,
+            "error": (
+                f"Zefame service {service_id} is En maintenance on the website "
+                "(orders blocked locally; API may still accept)."
+            ),
+        }
     try:
         result = client.add_order(service_id, link, quantity=quantity)
-        return {"ok": True, "service": service_id, "quantity": quantity, **result}
+        return {
+            "ok": True,
+            "panel": "zefame",
+            "service": service_id,
+            "quantity": quantity,
+            **result,
+        }
     except ZefameAPIError as exc:
         err = str(exc)
         if _is_link_duplicate_error(err):
             return {
                 "ok": True,
+                "panel": "zefame",
                 "service": service_id,
                 "quantity": quantity,
                 "duplicate_skipped": True,
@@ -108,6 +231,7 @@ def _place(service_id: int, link: str, quantity: int) -> dict:
             }
         payload: dict[str, Any] = {
             "ok": False,
+            "panel": "zefame",
             "service": service_id,
             "quantity": quantity,
             "error": err,
@@ -122,54 +246,134 @@ def _place(service_id: int, link: str, quantity: int) -> dict:
                 "Zefame API rejected the request (check ZEFAME_API_KEY in .env). "
                 f"Details: {err}"
             )
-        return {"ok": False, "service": service_id, "quantity": quantity, "error": err}
+        return {
+            "ok": False,
+            "panel": "zefame",
+            "service": service_id,
+            "quantity": quantity,
+            "error": err,
+        }
 
 
-_service_rates: dict[int, float] | None = None
-_services_by_id: dict[int, dict[str, Any]] | None = None
+def _place_boostero(service_id: int, link: str, quantity: int) -> dict:
+    panel = _get_boostero()
+    if panel is None:
+        return {
+            "ok": False,
+            "panel": "boostero",
+            "service": service_id,
+            "quantity": quantity,
+            "error": "Boostero is not configured (set BOOSTERO_API_KEY).",
+        }
+    try:
+        result = panel.add_order(service_id, link, quantity=quantity)
+        return {
+            "ok": True,
+            "panel": "boostero",
+            "service": service_id,
+            "quantity": quantity,
+            **result,
+        }
+    except BoosteroAPIError as exc:
+        err = str(exc)
+        if _is_link_duplicate_error(err):
+            return {
+                "ok": True,
+                "panel": "boostero",
+                "service": service_id,
+                "quantity": quantity,
+                "duplicate_skipped": True,
+                "note": "Boostero already has an order for this link on this service.",
+                "error": err,
+            }
+        payload: dict[str, Any] = {
+            "ok": False,
+            "panel": "boostero",
+            "service": service_id,
+            "quantity": quantity,
+            "error": err,
+        }
+        if _is_maintenance_error(err):
+            payload["maintenance"] = True
+        return payload
+    except Exception as exc:
+        err = str(exc)
+        if "401" in err or "Unauthorized" in err:
+            err = (
+                "Boostero API rejected the request (check BOOSTERO_API_KEY in .env). "
+                f"Details: {err}"
+            )
+        return {
+            "ok": False,
+            "panel": "boostero",
+            "service": service_id,
+            "quantity": quantity,
+            "error": err,
+        }
+
+
+_zefame_services_by_id: dict[int, dict[str, Any]] | None = None
+_boostero_services_by_id: dict[int, dict[str, Any]] | None = None
+_zefame_rates: dict[int, float] | None = None
+_boostero_rates: dict[int, float] | None = None
 _services_loaded_at: float = 0.0
 _SERVICES_CACHE_TTL = 300.0
 
 
-def _load_services_by_id() -> dict[int, dict[str, Any]]:
-    global _services_by_id, _services_loaded_at, _service_rates
+def _refresh_service_catalogs() -> None:
+    global _zefame_services_by_id, _boostero_services_by_id
+    global _zefame_rates, _boostero_rates, _services_loaded_at
     now = time.time()
-    if _services_by_id is not None and now - _services_loaded_at < _SERVICES_CACHE_TTL:
-        return _services_by_id
+    if (
+        _zefame_services_by_id is not None
+        and now - _services_loaded_at < _SERVICES_CACHE_TTL
+    ):
+        return
     try:
-        _services_by_id = {int(row["service"]): row for row in client.services()}
-        _service_rates = {
-            sid: float(row["rate"]) for sid, row in _services_by_id.items()
+        _zefame_services_by_id = {
+            int(row["service"]): row for row in client.services()
+        }
+        _zefame_rates = {
+            sid: float(row["rate"]) for sid, row in _zefame_services_by_id.items()
         }
     except Exception:
-        _services_by_id = {}
-        _service_rates = {}
+        _zefame_services_by_id = {}
+        _zefame_rates = {}
+    bc = _get_boostero()
+    if bc is not None:
+        try:
+            _boostero_services_by_id = {
+                int(row["service"]): row for row in bc.services()
+            }
+            _boostero_rates = {
+                sid: float(row["rate"])
+                for sid, row in _boostero_services_by_id.items()
+            }
+        except Exception:
+            _boostero_services_by_id = {}
+            _boostero_rates = {}
+    else:
+        _boostero_services_by_id = {}
+        _boostero_rates = {}
     _services_loaded_at = now
-    return _services_by_id
 
 
-def _load_service_rates() -> dict[int, float]:
-    global _service_rates
-    if _service_rates is not None and _services_by_id is not None:
-        return _service_rates
-    _load_services_by_id()
-    return _service_rates or {}
-
-
-def _service_health(service_id: int) -> dict[str, Any]:
-    """Best-effort availability from Zefame's services API (not the website UI)."""
-    catalog = _load_services_by_id()
+def _panel_service_health(
+    panel: str,
+    service_id: int,
+    catalog: dict[int, dict[str, Any]],
+) -> dict[str, Any]:
     row = catalog.get(service_id)
     if not row:
         return {
+            "panel": panel,
             "service_id": service_id,
             "listed_in_api": False,
             "likely_available": False,
-            "message": (
-                "Not listed in Zefame API — often disabled or in maintenance on the website."
-            ),
+            "message": f"Not listed in {panel.title()} API.",
         }
     return {
+        "panel": panel,
         "service_id": service_id,
         "listed_in_api": True,
         "likely_available": True,
@@ -178,28 +382,37 @@ def _service_health(service_id: int) -> dict[str, Any]:
         "min": row.get("min"),
         "max": row.get("max"),
         "rate": row.get("rate"),
-        "message": (
-            "Listed in Zefame API. The website “En maintenance” badge is not returned "
-            "by the API; likes orders can still fail until maintenance ends."
-        ),
+        "message": f"Listed in {panel.title()} API.",
     }
 
 
 def _validate_service_ids() -> None:
-    rates = _load_service_rates()
-    if not rates:
+    _refresh_service_catalogs()
+    zefame = _zefame_services_by_id or {}
+    boostero_cat = _boostero_services_by_id or {}
+    if not zefame:
         print("Warning: could not load Zefame services list.", flush=True)
-        return
-    for label, service_id in (("views", VIEWS_SERVICE_ID), ("likes", LIKES_SERVICE_ID)):
-        if service_id not in rates:
-            print(
-                f"Warning: ZEFAME_{label.upper()}_SERVICE={service_id} is not in the "
-                "Zefame services list. Orders for that leg may fail until you update env.",
-                flush=True,
-            )
-            continue
+    elif VIEWS_SERVICE_ID not in zefame:
+        print(
+            f"Warning: ZEFAME_VIEWS_SERVICE={VIEWS_SERVICE_ID} is not in the "
+            "Zefame services list.",
+            flush=True,
+        )
+    if _get_boostero() and not boostero_cat:
+        print("Warning: could not load Boostero services list.", flush=True)
+    elif _get_boostero() and BOOSTERO_LIKES_SERVICE_ID not in boostero_cat:
+        print(
+            f"Warning: BOOSTERO_LIKES_SERVICE={BOOSTERO_LIKES_SERVICE_ID} is not in "
+            "the Boostero services list.",
+            flush=True,
+        )
+    try:
+        route = _resolve_likes_route(FULL_LIKES_MIN)
+        likes_line = f"likes={route.panel} {route.service_id} ({route.reason})"
+    except ValueError as exc:
+        likes_line = f"likes=unavailable ({exc})"
     print(
-        f"Zefame services: views={VIEWS_SERVICE_ID}, likes={LIKES_SERVICE_ID}",
+        f"Panels: views=Zefame {VIEWS_SERVICE_ID}, {likes_line} · LIKES_PANEL={LIKES_PANEL}",
         flush=True,
     )
 
@@ -207,49 +420,144 @@ def _validate_service_ids() -> None:
 _validate_service_ids()
 
 
-def _order_cost(service_id: int, quantity: int) -> float:
-    rates = _load_service_rates()
-    if service_id not in rates:
-        raise ZefameAPIError(f"Service {service_id} is not available on Zefame.")
-    rate = rates[service_id]
-    return rate * quantity / 1000
+def _views_order_cost(quantity: int) -> float:
+    _refresh_service_catalogs()
+    rates = _zefame_rates or {}
+    if VIEWS_SERVICE_ID not in rates:
+        raise ZefameAPIError(f"Views service {VIEWS_SERVICE_ID} is not on Zefame.")
+    return rates[VIEWS_SERVICE_ID] * quantity / 1000
+
+
+def _likes_order_cost(route: LikesRoute, quantity: int) -> float:
+    _refresh_service_catalogs()
+    if route.panel == "zefame":
+        rates = _zefame_rates or {}
+        if route.service_id not in rates:
+            raise ZefameAPIError(
+                f"Likes service {route.service_id} is not on Zefame."
+            )
+        return rates[route.service_id] * quantity / 1000
+    rates = _boostero_rates or {}
+    if route.service_id not in rates:
+        raise BoosteroAPIError(
+            f"Likes service {route.service_id} is not on Boostero."
+        )
+    return rates[route.service_id] * quantity / 1000
+
+
+def _parse_balance(raw: dict[str, str] | None) -> tuple[float | None, str]:
+    if not raw:
+        return None, "USD"
+    try:
+        return float(raw["balance"]), raw.get("currency") or "USD"
+    except (KeyError, TypeError, ValueError):
+        return None, "USD"
+
+
+def _get_balances() -> dict[str, Any]:
+    zefame_raw = None
+    boostero_raw = None
+    try:
+        zefame_raw = client.balance()
+    except Exception:
+        pass
+    bc = _get_boostero()
+    if bc is not None:
+        try:
+            boostero_raw = bc.balance()
+        except Exception:
+            pass
+    return {"zefame": zefame_raw, "boostero": boostero_raw}
+
+
+def _api_balances_payload() -> dict[str, Any]:
+    return _get_balances()
 
 
 def _balance_error_for_pack(views_qty: int, likes_qty: int) -> str | None:
-    """Refuse dual orders unless balance covers both legs."""
+    """Refuse dual orders unless each panel balance covers its leg."""
     try:
-        balance = float(client.balance()["balance"])
-    except Exception:
-        return None
-
-    try:
-        needed = _order_cost(VIEWS_SERVICE_ID, views_qty) + _order_cost(LIKES_SERVICE_ID, likes_qty)
-    except ZefameAPIError as exc:
+        likes_route = _resolve_likes_route(likes_qty)
+        views_needed = _views_order_cost(views_qty)
+        likes_needed = _likes_order_cost(likes_route, likes_qty)
+    except (ZefameAPIError, BoosteroAPIError, ValueError) as exc:
         return str(exc)
 
-    if needed <= 0:
-        return None
-    if balance + 1e-9 < needed:
-        currency = "EUR"
-        try:
-            currency = client.balance().get("currency") or currency
-        except Exception:
-            pass
-        return (
-            f"Insufficient balance for views + likes "
-            f"(need ~{needed:.4f} {currency}, have {balance:.4f} {currency}). "
-            "Top up before boosting so both orders are sent."
+    balances = _get_balances()
+    z_bal, z_cur = _parse_balance(balances.get("zefame"))
+    b_bal, b_cur = _parse_balance(balances.get("boostero"))
+    zefame_total = views_needed + (
+        likes_needed if likes_route.panel == "zefame" else 0.0
+    )
+    parts: list[str] = []
+    if z_bal is not None and z_bal + 1e-9 < zefame_total:
+        label = (
+            "Zefame (views + likes)"
+            if likes_route.panel == "zefame"
+            else "Zefame (views)"
         )
-    return None
+        parts.append(
+            f"{label}: need ~{zefame_total:.4f} {z_cur}, have {z_bal:.4f} {z_cur}"
+        )
+    if likes_route.panel == "boostero" and b_bal is not None and b_bal + 1e-9 < likes_needed:
+        parts.append(
+            f"Boostero (likes): need ~{likes_needed:.4f} {b_cur}, "
+            f"have {b_bal:.4f} {b_cur}"
+        )
+    return "; ".join(parts) if parts else None
 
 
-def _try_cancel_order(order_id: int | str | None) -> dict | None:
+def _try_cancel_likes_order(likes: dict | None) -> dict | None:
+    if not likes:
+        return None
+    order_id = likes.get("order")
     if not order_id:
         return None
+    panel = likes.get("panel")
     try:
+        if panel == "boostero":
+            bc = _get_boostero()
+            if bc is None:
+                return {"ok": False, "error": "Boostero not configured", "order": order_id}
+            return bc.cancel([order_id])
         return client.cancel([order_id])
     except Exception as exc:
         return {"ok": False, "error": str(exc), "order": order_id}
+
+
+def _place_likes_on_route(route: LikesRoute, link: str, quantity: int) -> dict:
+    if route.panel == "zefame":
+        result = _place_zefame(route.service_id, link, quantity)
+    else:
+        result = _place_boostero(route.service_id, link, quantity)
+    result["route"] = {
+        "panel": route.panel,
+        "service": route.service_id,
+        "reason": route.reason,
+    }
+    return result
+
+
+def _place_likes(
+    link: str,
+    quantity: int,
+    *,
+    service_id: int | None = None,
+) -> dict:
+    try:
+        if service_id is not None:
+            route = _resolve_likes_route_explicit(service_id, quantity)
+        else:
+            route = _resolve_likes_route(quantity)
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "service": service_id or ZEFAME_LIKES_SERVICE_ID,
+            "quantity": quantity,
+            "error": str(exc),
+        }
+
+    return _place_likes_on_route(route, link, quantity)
 
 
 def _boost_history_kwargs(
@@ -279,17 +587,17 @@ def _place_views_and_likes(
     if balance_error:
         failed = {
             "ok": False,
-            "service": LIKES_SERVICE_ID,
+            "service": ZEFAME_LIKES_SERVICE_ID,
             "quantity": likes_qty,
             "error": balance_error,
         }
         return failed, failed
 
-    likes = _place(LIKES_SERVICE_ID, link, likes_qty)
+    likes = _place_likes(link, likes_qty)
     if not likes.get("ok"):
         return None, likes
 
-    views = _place(VIEWS_SERVICE_ID, link, views_qty)
+    views = _place_zefame(VIEWS_SERVICE_ID, link, views_qty)
     if views.get("ok"):
         return views, likes
 
@@ -298,7 +606,7 @@ def _place_views_and_likes(
         return views, likes
 
     if likes.get("order") and not likes.get("duplicate_skipped"):
-        cancel_result = _try_cancel_order(likes.get("order"))
+        cancel_result = _try_cancel_likes_order(likes)
         if cancel_result is not None:
             likes["cancel_attempt"] = cancel_result
         likes["rolled_back"] = bool(cancel_result)
@@ -412,67 +720,120 @@ def _boost_pack_plan(item: dict[str, Any]) -> dict[str, int]:
 def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
     """Exact full-pack cost from each video's queue stats and boost plan."""
     count = len(ready)
+    balances = _get_balances()
+    z_bal, z_cur = _parse_balance(balances.get("zefame"))
+    b_bal, b_cur = _parse_balance(balances.get("boostero"))
+
     if count == 0:
-        try:
-            balance_raw = client.balance()
-            balance = float(balance_raw["balance"])
-            currency = balance_raw.get("currency") or "EUR"
-        except Exception:
-            balance = None
-            currency = "EUR"
         return {
             "ok": True,
             "count": 0,
-            "balance": balance,
-            "currency": currency,
+            "balances": balances,
+            "balance": z_bal,
+            "currency": z_cur,
+            "balance_boostero": b_bal,
+            "currency_boostero": b_cur,
             "cost": 0.0,
+            "cost_views": 0.0,
+            "cost_likes": 0.0,
             "sufficient": True,
+            "sufficient_zefame": z_bal is None or z_bal >= 0,
+            "sufficient_boostero": b_bal is None or b_bal >= 0,
             "shortfall": 0.0,
+            "shortfall_zefame": 0.0,
+            "shortfall_boostero": 0.0,
             "views_total": 0,
             "likes_total": 0,
             "views_service": VIEWS_SERVICE_ID,
-            "likes_service": LIKES_SERVICE_ID,
+            "likes_service": None,
+            "views_panel": "zefame",
+            "likes_panel": None,
+            "likes_routing": _likes_routing_snapshot(FULL_LIKES_MIN),
         }
 
     try:
-        balance_raw = client.balance()
-        balance = float(balance_raw["balance"])
-        currency = balance_raw.get("currency") or "EUR"
-    except Exception as exc:
-        return {"ok": False, "error": f"Could not load balance: {exc}"}
-
-    try:
-        cost_total = 0.0
+        cost_views = 0.0
+        cost_likes_zefame = 0.0
+        cost_likes_boostero = 0.0
         views_total = 0
         likes_total = 0
+        likes_panels: set[str] = set()
+        likes_services: set[int] = set()
         for item in ready:
             plan = item.get("boost_pack") or _boost_pack_plan(item)
             views_qty = int(plan["views"])
             likes_qty = int(plan["likes"])
             views_total += views_qty
             likes_total += likes_qty
-            cost_total += _order_cost(VIEWS_SERVICE_ID, views_qty) + _order_cost(
-                LIKES_SERVICE_ID, likes_qty
-            )
-    except ZefameAPIError as exc:
+            cost_views += _views_order_cost(views_qty)
+            route = _resolve_likes_route(likes_qty)
+            likes_panels.add(route.panel)
+            likes_services.add(route.service_id)
+            leg_cost = _likes_order_cost(route, likes_qty)
+            if route.panel == "zefame":
+                cost_likes_zefame += leg_cost
+            else:
+                cost_likes_boostero += leg_cost
+    except (ZefameAPIError, BoosteroAPIError, ValueError) as exc:
         return {"ok": False, "error": str(exc)}
 
-    cost_total = round(cost_total, 4)
-    shortfall = round(max(0.0, cost_total - balance), 4)
-    sufficient = balance + 1e-9 >= cost_total
+    cost_views = round(cost_views, 4)
+    cost_likes_zefame = round(cost_likes_zefame, 4)
+    cost_likes_boostero = round(cost_likes_boostero, 4)
+    cost_likes = round(cost_likes_zefame + cost_likes_boostero, 4)
+    zefame_total = cost_views + cost_likes_zefame
+    shortfall_zefame = (
+        round(max(0.0, zefame_total - (z_bal or 0.0)), 4) if z_bal is not None else 0.0
+    )
+    shortfall_boostero = (
+        round(max(0.0, cost_likes_boostero - (b_bal or 0.0)), 4)
+        if b_bal is not None and cost_likes_boostero > 0
+        else 0.0
+    )
+    sufficient_zefame = z_bal is None or z_bal + 1e-9 >= zefame_total
+    sufficient_boostero = (
+        cost_likes_boostero <= 0
+        or b_bal is None
+        or b_bal + 1e-9 >= cost_likes_boostero
+    )
+    sufficient = sufficient_zefame and sufficient_boostero
+    if len(likes_panels) == 1:
+        likes_panel = next(iter(likes_panels))
+    elif likes_panels:
+        likes_panel = "mixed"
+    else:
+        likes_panel = None
+    likes_service = (
+        next(iter(likes_services)) if len(likes_services) == 1 else None
+    )
+    routing = _likes_routing_snapshot(FULL_LIKES_MIN)
 
     return {
         "ok": True,
         "count": count,
-        "balance": balance,
-        "currency": currency,
-        "cost": cost_total,
+        "balances": balances,
+        "balance": z_bal,
+        "currency": z_cur,
+        "balance_boostero": b_bal,
+        "currency_boostero": b_cur,
+        "cost": round(cost_views + cost_likes, 4),
+        "cost_views": cost_views,
+        "cost_likes": cost_likes,
+        "cost_likes_zefame": cost_likes_zefame,
+        "cost_likes_boostero": cost_likes_boostero,
         "sufficient": sufficient,
-        "shortfall": shortfall,
+        "sufficient_zefame": sufficient_zefame,
+        "sufficient_boostero": sufficient_boostero,
+        "shortfall": round(shortfall_zefame + shortfall_boostero, 4),
+        "shortfall_zefame": shortfall_zefame,
+        "shortfall_boostero": shortfall_boostero,
         "views_total": views_total,
         "likes_total": likes_total,
         "views_service": VIEWS_SERVICE_ID,
-        "likes_service": LIKES_SERVICE_ID,
+        "likes_service": likes_service,
+        "views_panel": "zefame",
+        "likes_panel": likes_panel,
+        "likes_routing": routing,
     }
 
 
@@ -535,7 +896,7 @@ def _run_complete_boost(
     likes = None
 
     if views_sent:
-        likes = _place(LIKES_SERVICE_ID, canonical_url, likes_qty)
+        likes = _place_likes(canonical_url, likes_qty)
         views = {"ok": True, "skipped": True, "reason": views_reason}
         all_ok = bool(likes.get("ok"))
         existing = get_boost(video_id) or {}
@@ -556,10 +917,7 @@ def _run_complete_boost(
                 views_at_queue=baseline_views,
             )
 
-    try:
-        balance = client.balance()
-    except Exception:
-        balance = None
+    balances = _api_balances_payload()
 
     if all_ok:
         record_boost(
@@ -590,7 +948,8 @@ def _run_complete_boost(
             "video_id": video_id,
             "views": views,
             "likes": likes,
-            "balance": balance,
+            "balances": balances,
+            "balance": balances.get("zefame"),
         },
         200,
     )
@@ -679,14 +1038,17 @@ def _run_boost(
         views_quantity = quantity if quantity is not None else _parse_views_quantity(None)
         if views_quantity is None or views_quantity < VIEWS_MIN:
             return {"ok": False, "error": f"Enter at least {VIEWS_MIN} views."}, 400
-        views = _place(VIEWS_SERVICE_ID, canonical_url, views_quantity)
+        views = _place_zefame(VIEWS_SERVICE_ID, canonical_url, views_quantity)
         all_ok = views.get("ok")
     elif mode == BOOST_MODE_LIKES_ONLY:
         likes_quantity = quantity if quantity is not None else _parse_likes_quantity(None)
         if likes_quantity is None or likes_quantity < LIKES_MIN:
             return {"ok": False, "error": f"Enter at least {LIKES_MIN} likes."}, 400
-        service_id = likes_service if likes_service is not None else LIKES_SERVICE_ID
-        likes = _place(service_id, canonical_url, likes_quantity)
+        likes = _place_likes(
+            canonical_url,
+            likes_quantity,
+            service_id=likes_service,
+        )
         all_ok = likes.get("ok")
     elif mode == BOOST_MODE_LOWER:
         balance_error = _balance_error_for_pack(LOW_VIEWS_QUANTITY, LIKES_QUANTITY)
@@ -702,10 +1064,7 @@ def _run_boost(
         views, likes = _place_views_and_likes(canonical_url, full_views_qty, full_likes_qty)
         all_ok = bool(views and views.get("ok") and likes.get("ok"))
 
-    try:
-        balance = client.balance()
-    except Exception:
-        balance = None
+    balances = _api_balances_payload()
 
     if all_ok and mode == BOOST_MODE_FULL:
         record_boost(
@@ -747,7 +1106,8 @@ def _run_boost(
             "video_id": video_id,
             "views": views,
             "likes": likes,
-            "balance": balance,
+            "balances": balances,
+            "balance": balances.get("zefame"),
         },
         200 if all_ok else 200,
     )
@@ -755,10 +1115,8 @@ def _run_boost(
 
 @app.get("/")
 def index():
-    try:
-        balance = client.balance()
-    except Exception:
-        balance = None
+    balances = _get_balances()
+    likes_routing = _likes_routing_snapshot(FULL_LIKES_MIN)
     return render_template(
         "index.html",
         views_service=VIEWS_SERVICE_ID,
@@ -766,7 +1124,9 @@ def index():
         low_views_qty=LOW_VIEWS_QUANTITY,
         views_only_qty=VIEWS_ONLY_QUANTITY,
         views_min=VIEWS_MIN,
-        likes_service=LIKES_SERVICE_ID,
+        likes_service=likes_routing.get("active_service") or LIKES_SERVICE_ID,
+        likes_panel=likes_routing.get("active_panel"),
+        likes_routing=likes_routing,
         likes_qty=LIKES_QUANTITY,
         full_likes_min=FULL_LIKES_MIN,
         full_likes_max=FULL_LIKES_MAX,
@@ -776,7 +1136,8 @@ def index():
         full_views_ultra=FULL_VIEWS_ULTRA,
         likes_only_qty=LIKES_ONLY_QUANTITY,
         likes_min=LIKES_MIN,
-        balance=balance,
+        balances=balances,
+        balance=balances.get("zefame"),
         queue_profile=QUEUE_PROFILE,
         queue_lookback_hours=QUEUE_LOOKBACK_HOURS,
         queue_min_age_hours=QUEUE_MIN_AGE_HOURS,
@@ -800,13 +1161,42 @@ def queue():
 
 @app.get("/api/config")
 def config_route():
+    _refresh_service_catalogs()
+    zefame_cat = _zefame_services_by_id or {}
+    boostero_cat = _boostero_services_by_id or {}
+    routing = _likes_routing_snapshot(FULL_LIKES_MIN)
+    active_panel = routing.get("active_panel")
+    active_service = routing.get("active_service")
+    if active_panel == "zefame" and active_service:
+        likes_health = _zefame_health_with_site(active_service, zefame_cat)
+    elif active_panel == "boostero" and active_service:
+        likes_health = _panel_service_health("boostero", active_service, boostero_cat)
+    else:
+        likes_health = {
+            "panel": active_panel,
+            "service_id": active_service,
+            "listed_in_api": False,
+            "likely_available": False,
+            "message": routing.get("active_reason"),
+        }
     return jsonify(
         {
             "ok": True,
             "views_service": VIEWS_SERVICE_ID,
-            "likes_service": LIKES_SERVICE_ID,
-            "views_health": _service_health(VIEWS_SERVICE_ID),
-            "likes_health": _service_health(LIKES_SERVICE_ID),
+            "likes_service": active_service,
+            "likes_panel_preference": LIKES_PANEL,
+            "views_panel": "zefame",
+            "likes_panel": active_panel,
+            "likes_routing": routing,
+            "views_health": _zefame_health_with_site(VIEWS_SERVICE_ID, zefame_cat),
+            "likes_health": likes_health,
+            "zefame_likes_health": _zefame_health_with_site(
+                ZEFAME_LIKES_SERVICE_ID, zefame_cat
+            ),
+            "zefame_site_maintenance": maintenance_status(ZEFAME_LIKES_SERVICE_ID),
+            "boostero_likes_health": _panel_service_health(
+                "boostero", BOOSTERO_LIKES_SERVICE_ID, boostero_cat
+            ),
         }
     )
 
@@ -966,10 +1356,7 @@ def complete_queue_boosts():
             fail_count += 1
         time.sleep(1.5)
 
-    try:
-        balance = client.balance()
-    except Exception:
-        balance = None
+    balances = _api_balances_payload()
 
     return jsonify(
         {
@@ -978,7 +1365,8 @@ def complete_queue_boosts():
             "ok_count": ok_count,
             "fail_count": fail_count,
             "skip_count": skip_count,
-            "balance": balance,
+            "balances": balances,
+            "balance": balances.get("zefame"),
             "results": results,
         }
     )
