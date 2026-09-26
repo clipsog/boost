@@ -81,6 +81,29 @@
       border-color: rgba(248, 81, 73, 0.45);
       background: rgba(248, 81, 73, 0.06);
     }
+    .panels-plan .routing-block {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .panels-plan .routing-summary {
+      color: var(--text);
+      font-weight: 500;
+      margin-bottom: 6px;
+    }
+    .panels-plan .routing-steps {
+      margin: 0;
+      padding-left: 1.1rem;
+    }
+    .panels-plan .routing-steps li {
+      margin: 4px 0;
+    }
+    .panels-plan .routing-steps li.fail {
+      color: #ff7b72;
+    }
+    .panels-plan .routing-steps li.ok {
+      color: var(--muted);
+    }
     label {
       display: block;
       font-size: 0.85rem;
@@ -1197,6 +1220,28 @@
       return panel || "Panel";
     }
 
+    function renderLikesRoutingBlock(routing) {
+      if (!routing) return "";
+      const steps = routing.decision_steps || [];
+      let html = `<div class="routing-block">`;
+      if (routing.zefame_checked_first) {
+        html += `<div class="queue-meta" style="margin:0 0 6px">Likes routing checks <strong>Zefame first</strong>, then Boostero if needed.</div>`;
+      }
+      if (routing.decision_summary) {
+        html += `<div class="routing-summary">${routing.decision_summary}</div>`;
+      }
+      if (steps.length) {
+        html += `<ol class="routing-steps">`;
+        for (const step of steps) {
+          const cls = step.ok === false ? "fail" : "ok";
+          html += `<li class="${cls}"><strong>${step.title}:</strong> ${step.detail || ""}</li>`;
+        }
+        html += `</ol>`;
+      }
+      html += `</div>`;
+      return html;
+    }
+
     function renderPanelsUsage(usage, { batchLabel } = {}) {
       if (!panelsPlanEl || !usage) {
         if (panelsPlanEl) panelsPlanEl.innerHTML = "";
@@ -1243,6 +1288,7 @@
           html += `<div class="plan-leg">${line}</div>`;
         }
       }
+      html += renderLikesRoutingBlock(usage.likes_routing);
       panelsPlanEl.innerHTML = html;
       const insufficient = legs.some((leg) => leg.shortfall > 0);
       panelsPlanEl.classList.toggle("insufficient", insufficient);
@@ -1388,6 +1434,10 @@
               `${formatPanelName(leg.panel)} ~${formatEurAmount(leg.cost)} ${leg.currency || ""}`.trim()
           );
           packLine += `<br><span class="queue-meta">${parts.join(" + ")}</span>`;
+        }
+        const lr = item.usage_plan && item.usage_plan.likes_routing;
+        if (lr && lr.decision_summary) {
+          packLine += `<br><span class="queue-meta">${lr.decision_summary}</span>`;
         }
       }
       const action = approvable

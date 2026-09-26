@@ -163,6 +163,7 @@ def _resolve_likes_route_explicit(service_id: int, quantity: int) -> LikesRoute:
 
 def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
     zefame_cat, boostero_cat, boostero_ok, maint = _likes_routing_context()
+    site_meta = maintenance_status(ZEFAME_LIKES_SERVICE_ID)
     snap = likes_routing_status(
         quantity,
         preference=LIKES_PANEL,
@@ -172,8 +173,9 @@ def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
         boostero_catalog=boostero_cat,
         boostero_configured=boostero_ok,
         zefame_site_maintenance_ids=maint,
+        site_maintenance_meta=site_meta,
     )
-    snap["zefame_site_maintenance_status"] = maintenance_status(ZEFAME_LIKES_SERVICE_ID)
+    snap["zefame_site_maintenance_status"] = site_meta
     return snap
 
 
@@ -818,6 +820,15 @@ def _build_panels_usage_summary(
     }
 
 
+def _attach_routing_to_usage(
+    usage: dict[str, Any],
+    routing: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if routing:
+        usage["likes_routing"] = routing
+    return usage
+
+
 def _pack_usage_plan(views_qty: int, likes_qty: int) -> dict[str, Any]:
     route = _resolve_likes_route(likes_qty)
     cost_views = _views_order_cost(views_qty)
@@ -845,6 +856,7 @@ def _pack_usage_plan(views_qty: int, likes_qty: int) -> dict[str, Any]:
     summary["likes_panel"] = route.panel
     summary["likes_service"] = route.service_id
     summary["views_service"] = VIEWS_SERVICE_ID
+    summary["likes_routing"] = _likes_routing_snapshot(likes_qty)
     return summary
 
 
@@ -880,16 +892,19 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
             "views_panel": "zefame",
             "likes_panel": None,
             "likes_routing": _likes_routing_snapshot(FULL_LIKES_MIN),
-            "panels_usage": _build_panels_usage_summary(
-                cost_views=0.0,
-                cost_likes_zefame=0.0,
-                cost_likes_boostero=0.0,
-                z_bal=z_bal,
-                z_cur=z_cur,
-                b_bal=b_bal,
-                b_cur=b_cur,
-                likes_service=None,
-                video_count=0,
+            "panels_usage": _attach_routing_to_usage(
+                _build_panels_usage_summary(
+                    cost_views=0.0,
+                    cost_likes_zefame=0.0,
+                    cost_likes_boostero=0.0,
+                    z_bal=z_bal,
+                    z_cur=z_cur,
+                    b_bal=b_bal,
+                    b_cur=b_cur,
+                    likes_service=None,
+                    video_count=0,
+                ),
+                _likes_routing_snapshot(FULL_LIKES_MIN),
             ),
         }
 
@@ -976,16 +991,19 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
         "views_panel": "zefame",
         "likes_panel": likes_panel,
         "likes_routing": routing,
-        "panels_usage": _build_panels_usage_summary(
-            cost_views=cost_views,
-            cost_likes_zefame=cost_likes_zefame,
-            cost_likes_boostero=cost_likes_boostero,
-            z_bal=z_bal,
-            z_cur=z_cur,
-            b_bal=b_bal,
-            b_cur=b_cur,
-            likes_service=likes_service,
-            video_count=count,
+        "panels_usage": _attach_routing_to_usage(
+            _build_panels_usage_summary(
+                cost_views=cost_views,
+                cost_likes_zefame=cost_likes_zefame,
+                cost_likes_boostero=cost_likes_boostero,
+                z_bal=z_bal,
+                z_cur=z_cur,
+                b_bal=b_bal,
+                b_cur=b_cur,
+                likes_service=likes_service,
+                video_count=count,
+            ),
+            routing,
         ),
     }
 

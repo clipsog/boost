@@ -168,6 +168,157 @@ def route_for_service_id(
     raise ValueError(f"Service {service_id} is not in Zefame or Boostero catalogs.")
 
 
+def humanize_zefame_detail(detail: str, service_id: int, quantity: int) -> str:
+    if detail == "site_maintenance":
+        return (
+            f"#{service_id} is En maintenance on zefame.com — "
+            "not used for likes even if the API still lists it."
+        )
+    if detail == "not_listed":
+        return f"#{service_id} is not listed in the Zefame API."
+    if detail.startswith("min_"):
+        return (
+            f"#{service_id} needs at least {detail[4:]} likes via API "
+            f"(this pack sends {quantity})."
+        )
+    if detail == "above_max":
+        return f"#{service_id} quantity {quantity} is above the Zefame API maximum."
+    if detail == "catalog_ok":
+        return f"#{service_id} passes site + API checks for {quantity} likes."
+    return detail
+
+
+def build_likes_decision_flow(
+    *,
+    quantity: int,
+    preference: str,
+    zefame_service_id: int,
+    boostero_service_id: int,
+    z_ok: bool,
+    z_detail: str,
+    b_ok: bool,
+    b_detail: str,
+    in_site_maintenance: bool,
+    site_maintenance_fetch_ok: bool | None,
+    site_maintenance_ids_count: int | None,
+    active_panel: str | None,
+    active_service: int | None,
+) -> dict[str, Any]:
+    pref = (preference or "auto").lower()
+    z_human = humanize_zefame_detail(z_detail, zefame_service_id, quantity)
+    steps: list[dict[str, Any]] = []
+
+    if pref == "auto":
+        fetch_ok = site_maintenance_fetch_ok is not False
+        maint_detail = (
+            f"ZFM_MAINT.ids loaded ({site_maintenance_ids_count or '?'} services). "
+            f"#{zefame_service_id} "
+            + (
+                "is flagged En maintenance on the website."
+                if in_site_maintenance
+                else "is not on the website maintenance list."
+            )
+        )
+        if site_maintenance_fetch_ok is False:
+            maint_detail = "Could not refresh zefame.com maintenance list (using last cached data if any)."
+        steps.append(
+            {
+                "order": 1,
+                "title": "Read zefame.com maintenance (ZFM_MAINT.ids)",
+                "ok": fetch_ok,
+                "detail": maint_detail,
+            }
+        )
+        steps.append(
+            {
+                "order": 2,
+                "title": f"Check Zefame likes #{zefame_service_id} for {quantity} likes",
+                "ok": z_ok,
+                "detail": z_human,
+            }
+        )
+        if z_ok:
+            steps.append(
+                {
+                    "order": 3,
+                    "title": "Likes destination",
+                    "ok": True,
+                    "detail": f"Use Zefame #{active_service or zefame_service_id} (Boostero skipped).",
+                }
+            )
+            summary = (
+                f"Likes: Zefame #{zefame_service_id} checked first and available "
+                f"→ Zefame for {quantity} likes."
+            )
+        else:
+            steps.append(
+                {
+                    "order": 3,
+                    "title": f"Fallback Boostero #{boostero_service_id}",
+                    "ok": b_ok,
+                    "detail": (
+                        f"Use Boostero for {quantity} likes."
+                        if b_ok and active_panel == "boostero"
+                        else f"Boostero not usable ({b_detail})."
+                    ),
+                }
+            )
+            summary = (
+                f"Likes: Zefame #{zefame_service_id} checked first ({z_human}) "
+                f"→ {'Boostero #' + str(active_service) if b_ok and active_panel == 'boostero' else 'no fallback'}."
+            )
+        return {
+            "zefame_checked_first": True,
+            "decision_summary": summary,
+            "decision_steps": steps,
+        }
+
+    if pref == "zefame":
+        steps = [
+            {
+                "order": 1,
+                "title": "LIKES_PANEL=zefame",
+                "ok": z_ok,
+                "detail": "Auto routing disabled; Zefame only (site list still checked on order).",
+            },
+            {
+                "order": 2,
+                "title": f"Zefame #{zefame_service_id}",
+                "ok": z_ok,
+                "detail": z_human,
+            },
+        ]
+        return {
+            "zefame_checked_first": False,
+            "decision_summary": f"Likes: forced Zefame #{zefame_service_id} (LIKES_PANEL=zefame).",
+            "decision_steps": steps,
+        }
+
+    steps = [
+        {
+            "order": 1,
+            "title": "LIKES_PANEL=boostero",
+            "ok": b_ok,
+            "detail": "Zefame not consulted for routing (Boostero forced).",
+        },
+        {
+            "order": 2,
+            "title": f"Boostero #{boostero_service_id}",
+            "ok": b_ok,
+            "detail": (
+                f"Use Boostero for {quantity} likes."
+                if b_ok
+                else f"Unavailable ({b_detail})."
+            ),
+        },
+    ]
+    return {
+        "zefame_checked_first": False,
+        "decision_summary": f"Likes: forced Boostero #{boostero_service_id} (LIKES_PANEL=boostero).",
+        "decision_steps": steps,
+    }
+
+
 def likes_routing_status(
     quantity: int,
     *,
@@ -178,8 +329,10 @@ def likes_routing_status(
     boostero_catalog: dict[int, dict[str, Any]],
     boostero_configured: bool,
     zefame_site_maintenance_ids: frozenset[int] | set[int] | None = None,
+    site_maintenance_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     maint = zefame_site_maintenance_ids or frozenset()
+    meta = site_maintenance_meta or {}
     z_ok, z_detail = zefame_service_usable(
         zefame_catalog,
         zefame_service_id,
@@ -210,6 +363,23 @@ def likes_routing_status(
         active_service = None
         active_reason = str(exc)
 
+    in_site_maint = int(zefame_service_id) in maint
+    decision = build_likes_decision_flow(
+        quantity=quantity,
+        preference=preference,
+        zefame_service_id=zefame_service_id,
+        boostero_service_id=boostero_service_id,
+        z_ok=z_ok,
+        z_detail=z_detail,
+        b_ok=b_ok,
+        b_detail=b_detail,
+        in_site_maintenance=in_site_maint,
+        site_maintenance_fetch_ok=meta.get("fetch_ok"),
+        site_maintenance_ids_count=meta.get("maintenance_ids_count"),
+        active_panel=active_panel,
+        active_service=active_service,
+    )
+
     return {
         "preference": preference,
         "quantity_checked": quantity,
@@ -219,8 +389,9 @@ def likes_routing_status(
         "zefame_detail": z_detail,
         "boostero_eligible": b_ok,
         "boostero_detail": b_detail,
-        "zefame_site_maintenance": int(zefame_service_id) in maint,
+        "zefame_site_maintenance": in_site_maint,
         "active_panel": active_panel,
         "active_service": active_service,
         "active_reason": active_reason,
+        **decision,
     }
