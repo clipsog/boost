@@ -8,7 +8,7 @@ VIEWS_QUANTITY = int(os.getenv("ZEFAME_VIEWS_QUANTITY", "542"))
 LOW_VIEWS_QUANTITY = int(os.getenv("ZEFAME_LOW_VIEWS_QUANTITY", "300"))
 # Likes: auto picks panel using Zefame site maintenance list + API catalogs. See LIKES_PANEL.
 BOOSTERO_LIKES_SERVICE_ID = int(os.getenv("BOOSTERO_LIKES_SERVICE", "4802"))
-ZEFAME_LIKES_SERVICE_ID = int(os.getenv("ZEFAME_LIKES_SERVICE", "988"))
+ZEFAME_LIKES_SERVICE_ID = int(os.getenv("ZEFAME_LIKES_SERVICE", "1086"))
 LIKES_PANEL = os.getenv("LIKES_PANEL", "auto").strip().lower()
 LIKES_SERVICE_ID = ZEFAME_LIKES_SERVICE_ID
 LIKES_QUANTITY = int(os.getenv("ZEFAME_LIKES_QUANTITY", "10"))

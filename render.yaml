@@ -16,6 +16,8 @@ services:
         sync: false
       - key: BOOSTERO_LIKES_SERVICE
         value: "4802"
+      - key: ZEFAME_LIKES_SERVICE
+        value: "1086"
       - key: ZEFAME_ASSUMED_BOOST_HOURS
         value: "8"
       - key: ZEFAME_ASSUMED_BOOST_ET_CUTOFF_HOUR
