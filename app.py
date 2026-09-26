@@ -717,6 +717,137 @@ def _boost_pack_plan(item: dict[str, Any]) -> dict[str, int]:
     return {"views": views_qty, "likes": likes_qty}
 
 
+def _build_panels_usage_summary(
+    *,
+    cost_views: float,
+    cost_likes_zefame: float,
+    cost_likes_boostero: float,
+    z_bal: float | None,
+    z_cur: str,
+    b_bal: float | None,
+    b_cur: str,
+    likes_service: int | None,
+    video_count: int = 1,
+) -> dict[str, Any]:
+    zefame_charge = round(cost_views + cost_likes_zefame, 4)
+    boostero_charge = round(cost_likes_boostero, 4)
+    uses_zefame = zefame_charge > 0
+    uses_boostero = boostero_charge > 0
+
+    if uses_zefame and uses_boostero:
+        mode = "combined"
+        if video_count == 1:
+            headline = "Combined: Zefame (views) + Boostero (likes) for each full pack."
+        else:
+            headline = (
+                f"Combined: Zefame (views) + Boostero (likes) for all {video_count} full packs."
+            )
+    elif uses_zefame:
+        mode = "zefame_only"
+        headline = (
+            "Zefame only — views and likes both come from your Zefame balance."
+        )
+    elif uses_boostero:
+        mode = "boostero_only"
+        headline = "Boostero only — likes from your Boostero balance."
+    else:
+        mode = "none"
+        headline = "No panel charges estimated."
+
+    def _leg(
+        panel: str,
+        role: str,
+        service_id: int,
+        cost: float,
+        currency: str,
+        balance: float | None,
+    ) -> dict[str, Any]:
+        shortfall = None
+        balance_after = None
+        if balance is not None:
+            shortfall = round(max(0.0, cost - balance), 4)
+            balance_after = round(balance - cost, 4)
+        return {
+            "panel": panel,
+            "role": role,
+            "service_id": service_id,
+            "cost": round(cost, 4),
+            "currency": currency,
+            "balance": balance,
+            "balance_after": balance_after,
+            "shortfall": shortfall,
+        }
+
+    legs: list[dict[str, Any]] = []
+    if uses_zefame:
+        role_parts: list[str] = []
+        if cost_views > 0:
+            role_parts.append("views")
+        if cost_likes_zefame > 0:
+            role_parts.append("likes")
+        leg = _leg(
+            "zefame",
+            " + ".join(role_parts) if role_parts else "orders",
+            VIEWS_SERVICE_ID if cost_views > 0 else ZEFAME_LIKES_SERVICE_ID,
+            zefame_charge,
+            z_cur,
+            z_bal,
+        )
+        leg["cost_views"] = round(cost_views, 4)
+        leg["cost_likes"] = round(cost_likes_zefame, 4)
+        legs.append(leg)
+    if uses_boostero:
+        legs.append(
+            _leg(
+                "boostero",
+                "likes",
+                likes_service or BOOSTERO_LIKES_SERVICE_ID,
+                boostero_charge,
+                b_cur,
+                b_bal,
+            )
+        )
+
+    return {
+        "mode": mode,
+        "headline": headline,
+        "video_count": video_count,
+        "legs": legs,
+        "zefame_total": zefame_charge,
+        "boostero_total": boostero_charge,
+    }
+
+
+def _pack_usage_plan(views_qty: int, likes_qty: int) -> dict[str, Any]:
+    route = _resolve_likes_route(likes_qty)
+    cost_views = _views_order_cost(views_qty)
+    cost_likes_zefame = 0.0
+    cost_likes_boostero = 0.0
+    leg_cost = _likes_order_cost(route, likes_qty)
+    if route.panel == "zefame":
+        cost_likes_zefame = leg_cost
+    else:
+        cost_likes_boostero = leg_cost
+    balances = _get_balances()
+    z_bal, z_cur = _parse_balance(balances.get("zefame"))
+    b_bal, b_cur = _parse_balance(balances.get("boostero"))
+    summary = _build_panels_usage_summary(
+        cost_views=cost_views,
+        cost_likes_zefame=cost_likes_zefame,
+        cost_likes_boostero=cost_likes_boostero,
+        z_bal=z_bal,
+        z_cur=z_cur,
+        b_bal=b_bal,
+        b_cur=b_cur,
+        likes_service=route.service_id,
+        video_count=1,
+    )
+    summary["likes_panel"] = route.panel
+    summary["likes_service"] = route.service_id
+    summary["views_service"] = VIEWS_SERVICE_ID
+    return summary
+
+
 def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
     """Exact full-pack cost from each video's queue stats and boost plan."""
     count = len(ready)
@@ -749,6 +880,17 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
             "views_panel": "zefame",
             "likes_panel": None,
             "likes_routing": _likes_routing_snapshot(FULL_LIKES_MIN),
+            "panels_usage": _build_panels_usage_summary(
+                cost_views=0.0,
+                cost_likes_zefame=0.0,
+                cost_likes_boostero=0.0,
+                z_bal=z_bal,
+                z_cur=z_cur,
+                b_bal=b_bal,
+                b_cur=b_cur,
+                likes_service=None,
+                video_count=0,
+            ),
         }
 
     try:
@@ -834,6 +976,17 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
         "views_panel": "zefame",
         "likes_panel": likes_panel,
         "likes_routing": routing,
+        "panels_usage": _build_panels_usage_summary(
+            cost_views=cost_views,
+            cost_likes_zefame=cost_likes_zefame,
+            cost_likes_boostero=cost_likes_boostero,
+            z_bal=z_bal,
+            z_cur=z_cur,
+            b_bal=b_bal,
+            b_cur=b_cur,
+            likes_service=likes_service,
+            video_count=count,
+        ),
     }
 
 
@@ -1117,8 +1270,10 @@ def _run_boost(
 def index():
     balances = _get_balances()
     likes_routing = _likes_routing_snapshot(FULL_LIKES_MIN)
+    default_full_pack_usage = _pack_usage_plan(FULL_VIEWS_MID, FULL_LIKES_MIN)
     return render_template(
         "index.html",
+        default_full_pack_usage=default_full_pack_usage,
         views_service=VIEWS_SERVICE_ID,
         views_qty=VIEWS_QUANTITY,
         low_views_qty=LOW_VIEWS_QUANTITY,
@@ -1152,9 +1307,14 @@ def queue():
         payload["history"] = history_stats()
         ready = payload.get("ready") or []
         for item in ready:
-            item["boost_pack"] = _boost_pack_plan(item)
+            plan = _boost_pack_plan(item)
+            item["boost_pack"] = plan
+            item["usage_plan"] = _pack_usage_plan(plan["views"], plan["likes"])
         payload["ready"] = ready
         payload["boost_all_estimate"] = _estimate_boost_all_ready(ready)
+        payload["default_full_pack_usage"] = _pack_usage_plan(
+            FULL_VIEWS_MID, FULL_LIKES_MIN
+        )
     status = 200 if payload.get("ok") else 502
     return jsonify(payload), status
 
@@ -1196,6 +1356,9 @@ def config_route():
             "zefame_site_maintenance": maintenance_status(ZEFAME_LIKES_SERVICE_ID),
             "boostero_likes_health": _panel_service_health(
                 "boostero", BOOSTERO_LIKES_SERVICE_ID, boostero_cat
+            ),
+            "default_full_pack_usage": _pack_usage_plan(
+                FULL_VIEWS_MID, FULL_LIKES_MIN
             ),
         }
     )

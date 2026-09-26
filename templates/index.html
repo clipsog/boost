@@ -53,6 +53,34 @@
       margin-bottom: 20px;
     }
     .balance strong { color: var(--text); }
+    .panels-plan {
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin: -8px 0 16px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+      line-height: 1.55;
+    }
+    .panels-plan strong { color: var(--text); }
+    .panels-plan .plan-headline {
+      color: var(--text);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .panels-plan .plan-leg {
+      margin: 6px 0;
+      padding-left: 0;
+    }
+    .panels-plan .plan-leg-name {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .panels-plan.insufficient {
+      border-color: rgba(248, 81, 73, 0.45);
+      background: rgba(248, 81, 73, 0.06);
+    }
     label {
       display: block;
       font-size: 0.85rem;
@@ -441,6 +469,7 @@
       {% if balances.boostero %}Boostero: <strong>{{ balances.boostero.balance }} {{ balances.boostero.currency }}</strong>{% endif %}
     </p>
     {% endif %}
+    <div id="panelsPlan" class="panels-plan" aria-live="polite"></div>
 
     <section class="queue-section" id="queueSection">
       <div class="queue-header">
@@ -453,15 +482,6 @@
       <p class="queue-meta">
         @{{ queue_profile }} · last {{ queue_lookback_hours }}h ·
         waits {{ queue_min_age_hours }}h after post · full pack only
-        {% if likes_routing and likes_routing.active_panel %}
-        · likes auto → <strong>{{ likes_routing.active_panel }}</strong>
-        #{{ likes_routing.active_service }}
-        {% if likes_routing.zefame_site_maintenance %}
-        (Zefame #{{ likes_routing.zefame_service }}: En maintenance on site)
-        {% elif likes_routing.preference == 'auto' and not likes_routing.zefame_eligible %}
-        (Zefame #{{ likes_routing.zefame_service }}: {{ likes_routing.zefame_detail }})
-        {% endif %}
-        {% endif %}
       </p>
       <div id="queueStatus" class="queue-meta">Loading queue…</div>
       <div id="boostAllEstimate" class="queue-meta boost-all-estimate hidden"></div>
@@ -575,6 +595,8 @@
     const doneVideo = document.getElementById("doneVideo");
     const pageSub = document.getElementById("pageSub");
     const balanceLine = document.getElementById("balanceLine");
+    const panelsPlanEl = document.getElementById("panelsPlan");
+    const initialPanelsUsage = {{ default_full_pack_usage | tojson }};
 
     function formatPanelBalance(raw, label) {
       if (!raw || raw.balance == null) return `${label}: unavailable`;
@@ -1169,6 +1191,63 @@
       return note;
     }
 
+    function formatPanelName(panel) {
+      if (panel === "zefame") return "Zefame";
+      if (panel === "boostero") return "Boostero";
+      return panel || "Panel";
+    }
+
+    function renderPanelsUsage(usage, { batchLabel } = {}) {
+      if (!panelsPlanEl || !usage) {
+        if (panelsPlanEl) panelsPlanEl.innerHTML = "";
+        return;
+      }
+      const modeLabels = {
+        combined: "Both panels",
+        zefame_only: "Zefame only",
+        boostero_only: "Boostero only",
+        none: "No charge",
+      };
+      const modeTag = modeLabels[usage.mode] || usage.mode;
+      let html = `<div class="plan-headline">${modeTag}: ${usage.headline || ""}</div>`;
+      if (batchLabel) {
+        html += `<div class="queue-meta" style="margin:0 0 8px">${batchLabel}</div>`;
+      }
+      const legs = usage.legs || [];
+      if (!legs.length) {
+        html += `<div class="plan-leg">No panel usage for this action.</div>`;
+      } else {
+        for (const leg of legs) {
+          const name = formatPanelName(leg.panel);
+          const cur = leg.currency || "";
+          const cost = formatEurAmount(leg.cost);
+          const bal =
+            leg.balance != null ? formatEurAmount(leg.balance) : "—";
+          const after =
+            leg.balance_after != null ? formatEurAmount(leg.balance_after) : null;
+          let line =
+            `<span class="plan-leg-name">${name}</span> (${leg.role}, #${leg.service_id}): ` +
+            `uses ~<strong>${cost} ${cur}</strong>`;
+          if (leg.balance != null) {
+            line += ` · balance ${bal} ${cur}`;
+            if (after != null) {
+              line += ` → ~<strong>${after} ${cur}</strong> left`;
+            }
+            if (leg.shortfall > 0) {
+              line += ` · <strong>short ~${formatEurAmount(leg.shortfall)} ${cur}</strong>`;
+            }
+          }
+          if (leg.panel === "zefame" && leg.cost_views > 0 && leg.cost_likes > 0) {
+            line += ` (views ~${formatEurAmount(leg.cost_views)} + likes ~${formatEurAmount(leg.cost_likes)})`;
+          }
+          html += `<div class="plan-leg">${line}</div>`;
+        }
+      }
+      panelsPlanEl.innerHTML = html;
+      const insufficient = legs.some((leg) => leg.shortfall > 0);
+      panelsPlanEl.classList.toggle("insufficient", insufficient);
+    }
+
     function formatBoostAllCost(est) {
       if (!est || !est.ok || !est.count) return "";
       const zCur = est.currency || "EUR";
@@ -1254,6 +1333,15 @@
         (bLikes > 0 || est.balance_boostero != null ? ` · ${bBal}` : "") +
         ` · ${statusLine}`;
       boostAllEstimateEl.classList.remove("hidden");
+      if (est.panels_usage) {
+        renderPanelsUsage(est.panels_usage, {
+          batchLabel: readyCount > 1
+            ? `Totals for ${readyCount} videos (exact per-video amounts may vary slightly).`
+            : readyCount === 1
+              ? "Totals for 1 ready video."
+              : "",
+        });
+      }
     }
 
     function queueBoostPayload(item) {
@@ -1290,9 +1378,18 @@
         ? `<span class="queue-badge ready">Ready</span>`
         : `<span class="queue-badge waiting">Ready in ${formatWait(item.seconds_until_ready || 0)}</span>`;
       const pack = item.boost_pack;
-      const packLine = pack
-        ? `<br>Full pack: ${formatCount(pack.views)} views + ${formatCount(pack.likes)} likes`
-        : "";
+      let packLine = "";
+      if (pack) {
+        packLine = `<br>Full pack: ${formatCount(pack.views)} views + ${formatCount(pack.likes)} likes`;
+        const up = item.usage_plan;
+        if (up && up.legs && up.legs.length) {
+          const parts = up.legs.map(
+            (leg) =>
+              `${formatPanelName(leg.panel)} ~${formatEurAmount(leg.cost)} ${leg.currency || ""}`.trim()
+          );
+          packLine += `<br><span class="queue-meta">${parts.join(" + ")}</span>`;
+        }
+      }
       const action = approvable
         ? `<button type="button" class="queue-approve" data-queue-url="${item.url}" data-queue-video-id="${item.video_id}" data-queue-likes="${item.likes}" data-queue-views="${item.views}" data-queue-posted-at="${item.posted_at || ""}" data-queue-title="${(item.title || "").replace(/"/g, "&quot;")}">Approve boost</button>`
         : "";
@@ -1340,6 +1437,13 @@
         `${ready.length} ready · ${waiting.length} waiting · ${data.counts?.boosted || 0} already boosted${historyNote}${ageRule}`;
 
       renderBoostAllEstimate(data.boost_all_estimate, ready.length);
+
+      if (ready.length === 0) {
+        const fallback = data.default_full_pack_usage || initialPanelsUsage;
+        renderPanelsUsage(fallback, {
+          batchLabel: "Per full pack when you approve (example quantities).",
+        });
+      }
 
       boostAllReadyBtn.classList.toggle("hidden", ready.length === 0);
       const insufficient =
@@ -1448,18 +1552,20 @@
       const label = items.length === 1 ? "1 video" : `${items.length} videos`;
       let confirmMsg = `Send full boost pack to ${label}?`;
       if (est && est.ok) {
-        confirmMsg += `\n\nEstimated cost: ${formatBoostAllCost(est)} (${est.views_total.toLocaleString()} views + ${est.likes_total.toLocaleString()} likes).`;
-        if (est.balance != null || est.balance_boostero != null) {
-          if (est.balance != null) {
-            confirmMsg += `\nZefame balance: ${formatEurAmount(est.balance)} ${est.currency || "EUR"}.`;
+        if (est.panels_usage) {
+          confirmMsg += `\n\n${est.panels_usage.headline || ""}`;
+          for (const leg of est.panels_usage.legs || []) {
+            confirmMsg += `\n${formatPanelName(leg.panel)} (${leg.role}): ~${formatEurAmount(leg.cost)} ${leg.currency || ""}`;
+            if (leg.balance != null) {
+              confirmMsg += ` (have ${formatEurAmount(leg.balance)}, ~${formatEurAmount(leg.balance_after)} left)`;
+            }
           }
-          if (est.balance_boostero != null) {
-            confirmMsg += `\nBoostero balance: ${formatEurAmount(est.balance_boostero)} ${est.currency_boostero || "USD"}.`;
-          }
-          confirmMsg += est.sufficient
-            ? "\nBoth panel balances look sufficient."
-            : "\nOne or both panel balances may not cover all orders.";
+        } else {
+          confirmMsg += `\n\nEstimated cost: ${formatBoostAllCost(est)} (${est.views_total.toLocaleString()} views + ${est.likes_total.toLocaleString()} likes).`;
         }
+        confirmMsg += est.sufficient
+          ? "\n\nBalances look sufficient."
+          : "\n\nNot enough on one or both panels.";
       }
       confirmMsg += "\n\nOrders run one at a time.";
       if (!confirm(confirmMsg)) return;
@@ -1523,6 +1629,9 @@
 
     boostAllReadyBtn.addEventListener("click", boostAllReady);
     refreshQueueBtn.addEventListener("click", () => loadQueue(true));
+    renderPanelsUsage(initialPanelsUsage, {
+      batchLabel: "Per full pack when you approve (example quantities).",
+    });
     loadQueue(false);
     queueRefreshTimer = setInterval(() => loadQueue(false), 60000);
   </script>
