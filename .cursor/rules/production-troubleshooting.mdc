@@ -1,0 +1,23 @@
+---
+description: Safe production troubleshooting — no orders on queue videos; use designated test URL only.
+alwaysApply: true
+---
+
+# Production troubleshooting (boost app)
+
+## Never without explicit user approval
+
+- Do **not** POST `/api/boost`, run “boost all”, or place real panel orders against videos in the user’s approval queue or production batch.
+- Do **not** use random TikTok URLs from the queue as test targets.
+
+## Designated live test URL
+
+When the user asks to verify boosts, routing, or panel integration on production, use **only**:
+
+`https://vt.tiktok.com/ZSbj7DF8u/`
+
+Prefer single, user-approved test orders on that URL — not queue items or “boost all”.
+
+## Read-only checks (OK without asking)
+
+- Render logs, `/api/config`, code review, local mocks with fake URLs.
