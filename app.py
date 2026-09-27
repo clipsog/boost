@@ -121,13 +121,16 @@ def _is_maintenance_error(error: str | None) -> bool:
     return "maintenance" in lower or "not_active" in lower or "service_disabled" in lower
 
 
-def _likes_routing_context() -> tuple[
+LikesRoutingCtx = tuple[
     dict[int, dict[str, Any]],
     dict[int, dict[str, Any]],
     bool,
     frozenset[int],
     dict[str, Any],
-]:
+]
+
+
+def _likes_routing_context(*, force_refresh: bool = False) -> LikesRoutingCtx:
     _refresh_service_catalogs()
     zefame_cat = _zefame_services_by_id or {}
     boostero_cat = _boostero_services_by_id or {}
@@ -135,14 +138,21 @@ def _likes_routing_context() -> tuple[
     maint_ctx = maintenance_status(
         ZEFAME_LIKES_SERVICE_ID,
         smm_catalog_ids=smm_ids,
-        force_refresh=True,
+        force_refresh=force_refresh,
     )
     maint = frozenset(maint_ctx.get("effective_maintenance_service_ids") or [])
     return zefame_cat, boostero_cat, _get_boostero() is not None, maint, maint_ctx
 
 
-def _resolve_likes_route(quantity: int) -> LikesRoute:
-    zefame_cat, boostero_cat, boostero_ok, maint, _maint_ctx = _likes_routing_context()
+def _resolve_likes_route(
+    quantity: int,
+    *,
+    routing_ctx: LikesRoutingCtx | None = None,
+    force_refresh: bool = False,
+) -> LikesRoute:
+    zefame_cat, boostero_cat, boostero_ok, maint, _maint_ctx = (
+        routing_ctx if routing_ctx is not None else _likes_routing_context(force_refresh=force_refresh)
+    )
     return resolve_likes_route(
         quantity,
         preference=LIKES_PANEL,
@@ -155,8 +165,15 @@ def _resolve_likes_route(quantity: int) -> LikesRoute:
     )
 
 
-def _resolve_likes_route_explicit(service_id: int, quantity: int) -> LikesRoute:
-    zefame_cat, boostero_cat, _boostero_ok, maint, _maint_ctx = _likes_routing_context()
+def _resolve_likes_route_explicit(
+    service_id: int,
+    quantity: int,
+    *,
+    force_refresh: bool = True,
+) -> LikesRoute:
+    zefame_cat, boostero_cat, _boostero_ok, maint, _maint_ctx = _likes_routing_context(
+        force_refresh=force_refresh
+    )
     return route_for_service_id(
         service_id,
         quantity,
@@ -168,8 +185,15 @@ def _resolve_likes_route_explicit(service_id: int, quantity: int) -> LikesRoute:
     )
 
 
-def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
-    zefame_cat, boostero_cat, boostero_ok, maint, maint_ctx = _likes_routing_context()
+def _likes_routing_snapshot(
+    quantity: int = FULL_LIKES_MIN,
+    *,
+    routing_ctx: LikesRoutingCtx | None = None,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    zefame_cat, boostero_cat, boostero_ok, maint, maint_ctx = (
+        routing_ctx if routing_ctx is not None else _likes_routing_context(force_refresh=force_refresh)
+    )
     site_meta = maint_ctx
     snap = likes_routing_status(
         quantity,
@@ -184,7 +208,7 @@ def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
         views_service_id=VIEWS_SERVICE_ID,
     )
     snap["zefame_site_maintenance_status"] = site_meta
-    snap["maintenance_checked_fresh"] = True
+    snap["maintenance_checked_fresh"] = force_refresh
     return snap
 
 
@@ -505,7 +529,7 @@ def _api_balances_payload() -> dict[str, Any]:
 def _balance_error_for_pack(views_qty: int, likes_qty: int) -> str | None:
     """Refuse dual orders unless each panel balance covers its leg."""
     try:
-        likes_route = _resolve_likes_route(likes_qty)
+        likes_route = _resolve_likes_route(likes_qty, force_refresh=True)
         views_needed = _views_order_cost(views_qty)
         likes_needed = _likes_order_cost(likes_route, likes_qty)
     except (ZefameAPIError, BoosteroAPIError, ValueError) as exc:
@@ -576,7 +600,7 @@ def _place_likes(
         if service_id is not None:
             route = _resolve_likes_route_explicit(service_id, quantity)
         else:
-            route = _resolve_likes_route(quantity)
+            route = _resolve_likes_route(quantity, force_refresh=True)
     except ValueError as exc:
         return {
             "ok": False,
@@ -855,8 +879,13 @@ def _attach_routing_to_usage(
     return usage
 
 
-def _pack_usage_plan(views_qty: int, likes_qty: int) -> dict[str, Any]:
-    route = _resolve_likes_route(likes_qty)
+def _pack_usage_plan(
+    views_qty: int,
+    likes_qty: int,
+    *,
+    routing_ctx: LikesRoutingCtx | None = None,
+) -> dict[str, Any]:
+    route = _resolve_likes_route(likes_qty, routing_ctx=routing_ctx)
     cost_views = _views_order_cost(views_qty)
     cost_likes_zefame = 0.0
     cost_likes_boostero = 0.0
@@ -882,11 +911,17 @@ def _pack_usage_plan(views_qty: int, likes_qty: int) -> dict[str, Any]:
     summary["likes_panel"] = route.panel
     summary["likes_service"] = route.service_id
     summary["views_service"] = VIEWS_SERVICE_ID
-    summary["likes_routing"] = _likes_routing_snapshot(likes_qty)
+    summary["likes_routing"] = _likes_routing_snapshot(
+        likes_qty, routing_ctx=routing_ctx
+    )
     return summary
 
 
-def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
+def _estimate_boost_all_ready(
+    ready: list[dict[str, Any]],
+    *,
+    routing_ctx: LikesRoutingCtx | None = None,
+) -> dict[str, Any]:
     """Exact full-pack cost from each video's queue stats and boost plan."""
     count = len(ready)
     balances = _get_balances()
@@ -894,6 +929,9 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
     b_bal, b_cur = _parse_balance(balances.get("boostero"))
 
     if count == 0:
+        if routing_ctx is None:
+            routing_ctx = _likes_routing_context(force_refresh=False)
+        routing = _likes_routing_snapshot(FULL_LIKES_MIN, routing_ctx=routing_ctx)
         return {
             "ok": True,
             "count": 0,
@@ -917,7 +955,7 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
             "likes_service": None,
             "views_panel": "zefame",
             "likes_panel": None,
-            "likes_routing": _likes_routing_snapshot(FULL_LIKES_MIN),
+            "likes_routing": routing,
             "panels_usage": _attach_routing_to_usage(
                 _build_panels_usage_summary(
                     cost_views=0.0,
@@ -930,7 +968,7 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
                     likes_service=None,
                     video_count=0,
                 ),
-                _likes_routing_snapshot(FULL_LIKES_MIN),
+                routing,
             ),
         }
 
@@ -949,7 +987,7 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
             views_total += views_qty
             likes_total += likes_qty
             cost_views += _views_order_cost(views_qty)
-            route = _resolve_likes_route(likes_qty)
+            route = _resolve_likes_route(likes_qty, routing_ctx=routing_ctx)
             likes_panels.add(route.panel)
             likes_services.add(route.service_id)
             leg_cost = _likes_order_cost(route, likes_qty)
@@ -989,7 +1027,7 @@ def _estimate_boost_all_ready(ready: list[dict[str, Any]]) -> dict[str, Any]:
     likes_service = (
         next(iter(likes_services)) if len(likes_services) == 1 else None
     )
-    routing = _likes_routing_snapshot(FULL_LIKES_MIN)
+    routing = _likes_routing_snapshot(FULL_LIKES_MIN, routing_ctx=routing_ctx)
 
     return {
         "ok": True,
@@ -1350,14 +1388,19 @@ def queue():
     if payload.get("ok"):
         payload["history"] = history_stats()
         ready = payload.get("ready") or []
+        routing_ctx = _likes_routing_context(force_refresh=False)
         for item in ready:
             plan = _boost_pack_plan(item)
             item["boost_pack"] = plan
-            item["usage_plan"] = _pack_usage_plan(plan["views"], plan["likes"])
+            item["usage_plan"] = _pack_usage_plan(
+                plan["views"], plan["likes"], routing_ctx=routing_ctx
+            )
         payload["ready"] = ready
-        payload["boost_all_estimate"] = _estimate_boost_all_ready(ready)
+        payload["boost_all_estimate"] = _estimate_boost_all_ready(
+            ready, routing_ctx=routing_ctx
+        )
         payload["default_full_pack_usage"] = _pack_usage_plan(
-            FULL_VIEWS_MID, FULL_LIKES_MIN
+            FULL_VIEWS_MID, FULL_LIKES_MIN, routing_ctx=routing_ctx
         )
     status = 200 if payload.get("ok") else 502
     return jsonify(payload), status

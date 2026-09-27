@@ -27,22 +27,49 @@ HISTORY_PATH = BOOST_HISTORY_PATH
 BOOST_MODE_FULL = "full"
 BOOST_MODE_PARTIAL_VIEWS = "partial_views"
 
+_history_cache: dict[str, Any] | None = None
+_history_mtime: float = -1.0
 
-def _load() -> dict[str, Any]:
+
+def _load(*, force_reload: bool = False) -> dict[str, Any]:
+    global _history_cache, _history_mtime
     if not HISTORY_PATH.exists():
+        _history_cache = {}
+        _history_mtime = -1.0
         return {}
     try:
-        return json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+        mtime = HISTORY_PATH.stat().st_mtime
+    except OSError:
+        return _history_cache or {}
+    if (
+        not force_reload
+        and _history_cache is not None
+        and mtime == _history_mtime
+    ):
+        return _history_cache
+    try:
+        data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return {}
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    _history_cache = data
+    _history_mtime = mtime
+    return data
 
 
 def _save(data: dict[str, Any]) -> None:
+    global _history_cache, _history_mtime
     HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
     HISTORY_PATH.write_text(
         json.dumps(data, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+    try:
+        _history_mtime = HISTORY_PATH.stat().st_mtime
+    except OSError:
+        _history_mtime = -1.0
+    _history_cache = data
 
 
 def _entry_is_full_boost(entry: dict[str, Any]) -> bool:
