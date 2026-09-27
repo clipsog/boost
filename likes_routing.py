@@ -171,7 +171,7 @@ def route_for_service_id(
 def humanize_zefame_detail(detail: str, service_id: int, quantity: int) -> str:
     if detail == "site_maintenance":
         return (
-            f"#{service_id} is En maintenance on zefame.com — "
+            f"#{service_id} is blocked (ZFM_MAINT, not cleared by live CMS+API) — "
             "not used for likes even if the API still lists it."
         )
     if detail == "not_listed":
@@ -209,6 +209,7 @@ def build_likes_decision_flow(
     site_maintenance_fetch_ok: bool | None,
     site_maintenance_ids_count: int | None,
     maintenance_service_ids: list[int] | None,
+    site_maintenance_meta: dict[str, Any] | None,
     active_panel: str | None,
     active_service: int | None,
 ) -> dict[str, Any]:
@@ -216,8 +217,14 @@ def build_likes_decision_flow(
     z_human = humanize_zefame_detail(z_detail, zefame_service_id, quantity)
     steps: list[dict[str, Any]] = []
 
-    maint_ids = sorted(maintenance_service_ids or [])
+    meta = site_maintenance_meta or {}
+    zfm_raw = sorted(meta.get("zfm_maintenance_service_ids") or [])
+    overridden = sorted(meta.get("zfm_overridden_by_live_catalog") or [])
+    maint_ids = sorted(
+        meta.get("effective_maintenance_service_ids") or maintenance_service_ids or []
+    )
     maint_set = set(maint_ids)
+    in_site_maintenance = int(zefame_service_id) in maint_set
     configured_in_maint: list[int] = []
     if zefame_service_id in maint_set:
         configured_in_maint.append(zefame_service_id)
@@ -233,25 +240,29 @@ def build_likes_decision_flow(
                 "(using last cached data if any)."
             )
         else:
+            zfm_text = _format_maintenance_id_list(zfm_raw)
             maint_detail = (
-                f"En maintenance on zefame.com ({site_maintenance_ids_count or len(maint_ids)}): "
-                f"{maint_list_text}."
+                f"Fresh check: ZFM_MAINT.ids lists {zfm_text}. "
+                f"Blocking only: {maint_list_text}."
             )
+            if overridden:
+                maint_detail += (
+                    " Cleared by live CMS+API (stale ZFM_MAINT): "
+                    + _format_maintenance_id_list(overridden)
+                    + "."
+                )
             if configured_in_maint:
                 cfg = ", ".join(f"#{sid}" for sid in configured_in_maint)
-                maint_detail += f" This app uses {cfg} — affected."
-            elif in_site_maintenance:
+                maint_detail += f" Our services still blocked: {cfg}."
+            elif not in_site_maintenance and zefame_service_id in set(zfm_raw):
                 maint_detail += (
-                    f" Likes service #{zefame_service_id} is on the list."
+                    f" Likes #{zefame_service_id} was on ZFM_MAINT but is active in CMS+API."
                 )
-            else:
+            elif in_site_maintenance:
+                maint_detail += f" Likes #{zefame_service_id} is blocked."
+            elif views_service_id is not None:
                 maint_detail += (
-                    f" Likes #{zefame_service_id} not on the list"
-                    + (
-                        f"; views #{views_service_id} not on the list."
-                        if views_service_id is not None
-                        else "."
-                    )
+                    f" Likes #{zefame_service_id} and views #{views_service_id} not blocked."
                 )
         steps.append(
             {
@@ -304,8 +315,11 @@ def build_likes_decision_flow(
             "decision_summary": summary,
             "decision_steps": steps,
             "maintenance_service_ids": maint_ids,
+            "zfm_maintenance_service_ids": zfm_raw,
+            "zfm_overridden_by_live_catalog": overridden,
             "configured_services_in_maintenance": configured_in_maint,
             "maintenance_services_label": maint_list_text,
+            "zfm_maintenance_services_label": _format_maintenance_id_list(zfm_raw),
         }
 
     if pref == "zefame":
@@ -373,9 +387,13 @@ def likes_routing_status(
     site_maintenance_meta: dict[str, Any] | None = None,
     views_service_id: int | None = None,
 ) -> dict[str, Any]:
-    maint = zefame_site_maintenance_ids or frozenset()
     meta = site_maintenance_meta or {}
-    maint_ids_list = sorted(meta.get("maintenance_service_ids") or maint)
+    maint = frozenset(
+        meta.get("effective_maintenance_service_ids")
+        or zefame_site_maintenance_ids
+        or ()
+    )
+    maint_ids_list = sorted(maint)
     z_ok, z_detail = zefame_service_usable(
         zefame_catalog,
         zefame_service_id,
@@ -421,6 +439,7 @@ def likes_routing_status(
         site_maintenance_fetch_ok=meta.get("fetch_ok"),
         site_maintenance_ids_count=meta.get("maintenance_ids_count"),
         maintenance_service_ids=maint_ids_list,
+        site_maintenance_meta=meta,
         active_panel=active_panel,
         active_service=active_service,
     )

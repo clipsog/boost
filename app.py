@@ -65,7 +65,7 @@ from likes_routing import (
 )
 from tiktok_stats import TikTokStatsError, extract_video_id, get_video_stats
 from zefame_client import ZefameAPIError, ZefameClient
-from zefame_site import get_zefame_maintenance_ids, maintenance_status
+from zefame_site import maintenance_status, service_in_site_maintenance
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -126,16 +126,23 @@ def _likes_routing_context() -> tuple[
     dict[int, dict[str, Any]],
     bool,
     frozenset[int],
+    dict[str, Any],
 ]:
     _refresh_service_catalogs()
     zefame_cat = _zefame_services_by_id or {}
     boostero_cat = _boostero_services_by_id or {}
-    maint = get_zefame_maintenance_ids()
-    return zefame_cat, boostero_cat, _get_boostero() is not None, maint
+    smm_ids = frozenset(zefame_cat.keys())
+    maint_ctx = maintenance_status(
+        ZEFAME_LIKES_SERVICE_ID,
+        smm_catalog_ids=smm_ids,
+        force_refresh=True,
+    )
+    maint = frozenset(maint_ctx.get("effective_maintenance_service_ids") or [])
+    return zefame_cat, boostero_cat, _get_boostero() is not None, maint, maint_ctx
 
 
 def _resolve_likes_route(quantity: int) -> LikesRoute:
-    zefame_cat, boostero_cat, boostero_ok, maint = _likes_routing_context()
+    zefame_cat, boostero_cat, boostero_ok, maint, _maint_ctx = _likes_routing_context()
     return resolve_likes_route(
         quantity,
         preference=LIKES_PANEL,
@@ -149,7 +156,7 @@ def _resolve_likes_route(quantity: int) -> LikesRoute:
 
 
 def _resolve_likes_route_explicit(service_id: int, quantity: int) -> LikesRoute:
-    zefame_cat, boostero_cat, _boostero_ok, maint = _likes_routing_context()
+    zefame_cat, boostero_cat, _boostero_ok, maint, _maint_ctx = _likes_routing_context()
     return route_for_service_id(
         service_id,
         quantity,
@@ -162,8 +169,8 @@ def _resolve_likes_route_explicit(service_id: int, quantity: int) -> LikesRoute:
 
 
 def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
-    zefame_cat, boostero_cat, boostero_ok, maint = _likes_routing_context()
-    site_meta = maintenance_status(ZEFAME_LIKES_SERVICE_ID)
+    zefame_cat, boostero_cat, boostero_ok, maint, maint_ctx = _likes_routing_context()
+    site_meta = maint_ctx
     snap = likes_routing_status(
         quantity,
         preference=LIKES_PANEL,
@@ -177,6 +184,7 @@ def _likes_routing_snapshot(quantity: int = FULL_LIKES_MIN) -> dict[str, Any]:
         views_service_id=VIEWS_SERVICE_ID,
     )
     snap["zefame_site_maintenance_status"] = site_meta
+    snap["maintenance_checked_fresh"] = True
     return snap
 
 
@@ -185,10 +193,19 @@ def _zefame_health_with_site(
     catalog: dict[int, dict[str, Any]],
 ) -> dict[str, Any]:
     health = _panel_service_health("zefame", service_id, catalog)
-    site = maintenance_status(service_id)
+    site = maintenance_status(
+        service_id,
+        smm_catalog_ids=frozenset(catalog.keys()),
+        force_refresh=True,
+    )
     health["site_maintenance"] = site["site_maintenance"]
     health["site_maintenance_source"] = site.get("source")
-    if site["site_maintenance"]:
+    if site.get("cleared_by_live_catalog"):
+        health["message"] = (
+            "ZFM_MAINT still lists this ID, but CMS + SMM API show it active "
+            "— not treated as maintenance."
+        )
+    elif site["site_maintenance"]:
         health["likely_available"] = False
         health["message"] = (
             "Zefame website marks this service as En maintenance "
@@ -198,7 +215,14 @@ def _zefame_health_with_site(
 
 
 def _place_zefame(service_id: int, link: str, quantity: int) -> dict:
-    if int(service_id) in get_zefame_maintenance_ids():
+    _refresh_service_catalogs()
+    smm_ids = frozenset((_zefame_services_by_id or {}).keys())
+    in_maint, maint_ctx = service_in_site_maintenance(
+        int(service_id),
+        smm_catalog_ids=smm_ids,
+        force_refresh=True,
+    )
+    if in_maint:
         return {
             "ok": False,
             "panel": "zefame",
@@ -206,6 +230,7 @@ def _place_zefame(service_id: int, link: str, quantity: int) -> dict:
             "quantity": quantity,
             "maintenance": True,
             "site_maintenance": True,
+            "maintenance_context": maint_ctx,
             "error": (
                 f"Zefame service {service_id} is En maintenance on the website "
                 "(orders blocked locally; API may still accept)."
@@ -1372,7 +1397,11 @@ def config_route():
             "zefame_likes_health": _zefame_health_with_site(
                 ZEFAME_LIKES_SERVICE_ID, zefame_cat
             ),
-            "zefame_site_maintenance": maintenance_status(ZEFAME_LIKES_SERVICE_ID),
+            "zefame_site_maintenance": maintenance_status(
+                ZEFAME_LIKES_SERVICE_ID,
+                smm_catalog_ids=frozenset(zefame_cat.keys()),
+                force_refresh=True,
+            ),
             "boostero_likes_health": _panel_service_health(
                 "boostero", BOOSTERO_LIKES_SERVICE_ID, boostero_cat
             ),
