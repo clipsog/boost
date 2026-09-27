@@ -40,8 +40,9 @@ ASSUMED_BOOST_MORNING_ET_HOUR: int | None = (
 )
 # If a post is old enough and public stats look like a full pack landed, mark it boosted.
 INFER_BOOST_MIN_AGE_HOURS = float(os.getenv("ZEFAME_INFER_BOOST_MIN_AGE_HOURS", "2"))
-INFER_BOOST_VIEWS_MIN = int(os.getenv("ZEFAME_INFER_BOOST_VIEWS_MIN", "500"))
-INFER_BOOST_LIKES_MIN = int(os.getenv("ZEFAME_INFER_BOOST_LIKES_MIN", "18"))
+# Must be at or below smallest full-pack send (480 views / 10 likes) so boosted posts re-hide after history loss.
+INFER_BOOST_VIEWS_MIN = int(os.getenv("ZEFAME_INFER_BOOST_VIEWS_MIN", "400"))
+INFER_BOOST_LIKES_MIN = int(os.getenv("ZEFAME_INFER_BOOST_LIKES_MIN", "10"))
 
 _boost_history_raw = os.getenv("BOOST_HISTORY_PATH", "").strip()
 BOOST_HISTORY_PATH = (

@@ -162,6 +162,33 @@ def _public_stats_look_boosted(views: int, likes: int) -> bool:
     return views >= INFER_BOOST_VIEWS_MIN and likes >= INFER_BOOST_LIKES_MIN
 
 
+def _parse_boosted_at(entry: dict[str, Any]) -> datetime | None:
+    raw = entry.get("boosted_at")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _recent_boost_history_entry(
+    entry: dict[str, Any],
+    *,
+    now: datetime,
+    grace_hours: float | None = None,
+) -> bool:
+    """Keep history rows for recent boosts — do not unmark during the active queue window."""
+    boosted_at = _parse_boosted_at(entry)
+    if boosted_at is None:
+        return False
+    hours = grace_hours if grace_hours is not None else QUEUE_LOOKBACK_HOURS + 24
+    return (now - boosted_at) <= timedelta(hours=hours)
+
+
 def mark_assumed_boosted(
     video_id: str,
     *,
@@ -279,7 +306,9 @@ def sync_assumed_boosts_for_videos(
             entry = get_boost(vid) or {}
             if entry.get("assumed_boosted") and not _entry_protected_from_clear(entry):
                 keep = False
-                if entry.get("inferred_from_stats") and stats_look_boosted:
+                if _recent_boost_history_entry(entry, now=now_dt):
+                    keep = True
+                elif entry.get("inferred_from_stats") and stats_look_boosted:
                     keep = True
                 elif should_assume_boosted(
                     posted_at, now=now_dt, within_queue_window=within_queue
@@ -346,8 +375,8 @@ def record_boost(
         entry["likes_at_boost"] = existing.get("likes_at_boost")
     if zefame_duplicate or existing.get("zefame_duplicate"):
         entry["zefame_duplicate"] = True
-    if existing.get("assumed_boosted") and not _entry_has_real_orders(entry):
-        entry["assumed_boosted"] = True
+    if _entry_has_real_orders(entry):
+        entry.pop("assumed_boosted", None)
     data[str(video_id)] = entry
     _save(data)
     return entry

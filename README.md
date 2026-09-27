@@ -82,7 +82,11 @@ Posts **≥8 hours** old or from a **previous Eastern calendar day** are auto-ma
 
 ### Boost history on Render
 
-Production starts with an empty history unless you ship one. This repo includes `data/boost_history_seed.json` (copied from your local boosts). On first boot, if no runtime file exists yet, that seed is loaded automatically.
+On the **free** plan, `boosted_videos.json` lives on ephemeral disk — **every deploy or spin-down can reset** boost memory to the bundled seed. Videos you already boosted may show as **Ready** again until history is restored or public stats match a full pack (infer).
+
+For durable history, attach a **persistent disk** (Starter+), set `BOOST_HISTORY_PATH=/var/data/boosted_videos.json`, and write only under that mount.
+
+This repo includes `data/boost_history_seed.json`. On first boot with an empty runtime file, that seed is merged automatically.
 
 To sync newer local history after deploy:
 
